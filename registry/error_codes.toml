@@ -1,0 +1,167 @@
+# module-mmorpg 的错误码注册表。
+#
+# 本模块**自持**自己的业务码:核心通信层不需要认识 SceneNotFound 这类玩法
+# 概念,`TransferResponse.code` 本来就是整数,SDK 与客户端原样透传即可。
+#
+# `privchat-protocol` 的 registry 只**保留**下面两个段位(reserved_only),
+# 不登记具体码 —— 保留是为了防止核心把已被业务占用的号段再分配一次,
+# 那正是 20900(Sync ↔ Transfer)与 20920(Bot ↔ ServerEvent ↔ BotLifecycle)
+# 两组真实碰撞的成因。
+#
+# 本表与核心表同构,可用同一个门禁脚本校验。
+
+[[segment]]
+range = "21400-21499"
+domain = "mmo-battle"
+owner = "privchat-application-module-mmorpg"
+note = "回合制战斗协议,见 privchat-docs MMO_BATTLE_PROTOCOL_SPEC §9"
+
+[[segment]]
+range = "21600-21699"
+domain = "mmo-scene"
+owner = "privchat-application-module-mmorpg"
+note = "世界与场景协议,见 privchat-docs MMO_WORLD_SCENE_SPEC §9.1"
+
+# --- 战斗(21400-21499)---
+
+[[code]]
+code = 21400
+name = "BattleNotFound"
+domain = "mmo-battle"
+
+[[code]]
+code = 21401
+name = "BattlePhaseMismatch"
+domain = "mmo-battle"
+
+[[code]]
+code = 21402
+name = "BattleRoundMismatch"
+domain = "mmo-battle"
+
+[[code]]
+code = 21403
+name = "BattlePhaseVersionStale"
+domain = "mmo-battle"
+
+[[code]]
+code = 21404
+name = "BattleActorNotControllable"
+domain = "mmo-battle"
+
+[[code]]
+code = 21405
+name = "BattleActorNotInBattle"
+domain = "mmo-battle"
+
+[[code]]
+code = 21406
+name = "BattleActorCannotAct"
+domain = "mmo-battle"
+
+[[code]]
+code = 21407
+name = "BattleCommandRejected"
+domain = "mmo-battle"
+
+[[code]]
+code = 21408
+name = "BattleProtocolVersionUnsupported"
+domain = "mmo-battle"
+
+[[code]]
+code = 21409
+name = "BattleStateVersionConflict"
+domain = "mmo-battle"
+
+[[code]]
+code = 21410
+name = "BattlePayloadTooLarge"
+domain = "mmo-battle"
+
+[[code]]
+code = 21411
+name = "BattleIdempotencyKeyReuse"
+domain = "mmo-battle"
+
+[[code]]
+code = 21412
+name = "BattleActionSeqReuse"
+domain = "mmo-battle"
+
+[[code]]
+code = 21413
+name = "BattleSlotNotFound"
+domain = "mmo-battle"
+
+[[code]]
+code = 21414
+name = "BattleSlotNotOwned"
+domain = "mmo-battle"
+
+[[code]]
+code = 21415
+name = "BattleCommandNotAllowedInSlot"
+domain = "mmo-battle"
+
+[[code]]
+code = 21416
+name = "BattleActionSeqStale"
+domain = "mmo-battle"
+
+# --- 场景(21600-21699)---
+
+[[code]]
+code = 21600
+name = "SceneNotFound"
+domain = "mmo-scene"
+
+[[code]]
+code = 21601
+name = "SceneSessionInvalid"
+domain = "mmo-scene"
+
+[[code]]
+code = 21602
+name = "SceneGenerationMismatch"
+domain = "mmo-scene"
+
+[[code]]
+code = 21603
+name = "SceneMoveTargetUnreachable"
+domain = "mmo-scene"
+
+[[code]]
+code = 21604
+name = "SceneMoveNotAllowed"
+domain = "mmo-scene"
+
+[[code]]
+code = 21605
+name = "SceneMovementSeqStale"
+domain = "mmo-scene"
+
+[[code]]
+code = 21606
+name = "SceneIdempotencyKeyReuse"
+domain = "mmo-scene"
+
+[[code]]
+code = 21607
+name = "SceneEntityNotControllable"
+domain = "mmo-scene"
+
+[[code]]
+code = 21608
+name = "ScenePayloadTooLarge"
+domain = "mmo-scene"
+
+[[code]]
+code = 21609
+name = "SceneProtocolVersionUnsupported"
+domain = "mmo-scene"
+
+[[code]]
+code = 21610
+name = "SceneCommandInvalid"
+domain = "mmo-scene"

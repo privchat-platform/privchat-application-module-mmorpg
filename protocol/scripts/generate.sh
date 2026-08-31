@@ -50,16 +50,20 @@ for i in "${!ROOTS[@]}"; do
 done
 [ "$fail" -eq 0 ] || exit 1
 
-# 全部校验通过才落盘,并且只动 generated/ 下自己创建的目录。
+# 语义校验:FlatBuffers 不执行 VALIDATION.md 的规则,由 validate.py 执行,
+# 并用负向 fixture 反证校验器本身有效(全部非法样本必须被拒)。
+#
+# **必须在落盘之前跑** —— 先替换 generated/ 再校验的话,校验失败时
+# 新产物已经就位,与"全部校验通过才替换"自相矛盾。
+if [ "${RUN_VALIDATE:-1}" = "1" ]; then
+    echo
+    python3 "$HERE/scripts/validate.py" --fixtures || exit 1
+fi
+
+# 至此 identifier 与语义校验都已通过,才落盘;只动 generated/ 下自建目录。
 mkdir -p "$HERE/generated"
 rm -rf "$OUT"
 mv "$TMP" "$OUT"
 trap - EXIT
+echo
 echo "生成完成:$OUT"
-
-# 语义校验:FlatBuffers 不执行 VALIDATION.md 的规则,由 validate.py 执行,
-# 并用负向 fixture 反证校验器本身有效(全部非法样本必须被拒)。
-if [ "${RUN_VALIDATE:-1}" = "1" ]; then
-    echo
-    python3 "$HERE/scripts/validate.py" --fixtures
-fi
