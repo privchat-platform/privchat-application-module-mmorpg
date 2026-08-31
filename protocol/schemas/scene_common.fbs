@@ -1,0 +1,50 @@
+namespace privchat.mmorpg.scene;
+
+enum SceneKind : ubyte { LINE, INSTANCE }
+enum Visibility : ubyte { PUBLIC, PRIVATE }
+enum CorrectionReason : ubyte { NONE, BLOCKED, SPEED_CHANGED, DRIFT_EXCEEDED, TELEPORTED }
+
+/// 场景身份。generation 防 ID 复用:分线关闭后 ID 可能被重用,
+/// 无代际则旧事件/旧 session 会命中新场景(见 MMO_WORLD_SCENE_SPEC §1.1)。
+table SceneRef {
+  kind:SceneKind;
+  id:ulong;
+  generation:uint;
+}
+
+/// 定点坐标(**单位已冻结,不由玩法定义**)。
+///
+/// 把单位交给"玩法 spec"会让同一段字节在 Kotlin 与 C++ 中解释不同,
+/// 那不是协议。故在此固定:
+///
+///   单位     1 = 1/1000 世界单位(毫单位),int32
+///   原点     地图左上角
+///   轴向     +x 向右,+y 向下(屏幕坐标系)
+///   范围     int32 满量程:±2_147_483_647 毫单位 = **±2_147_483 世界单位**
+///   越界     超出地图边界返回 21603 SceneMoveTargetUnreachable
+///            (不是 21608 —— 那是包长错误,与坐标无关)
+///   舍入     服务端计算一律**向零取整**(truncate),不用 round/floor,
+///            保证 Kotlin/C++/GDScript 三端一致
+///
+/// **禁用 float** —— 跨语言浮点差异会破坏可复现性。
+struct Vec2Fixed { x:int; y:int; }
+
+/// 朝向:**uint16 turns**,`0..65535` 映射完整一圈。
+///
+/// 不用"毫弧度 + [0, 6283)":6283 不精确等于 2π,取模会累积误差,
+/// 且用无理数做整数取模本身就是错的。turns 天然回绕(uint16 溢出即取模),
+/// 三端结果必然一致。换算:`radians = turns * 2π / 65536`。
+///
+/// 速度:1 = 1/1000 世界单位每秒,int32、向零取整(同 Vec2Fixed)。
+
+/// AOI 实体投影。位置类字段按 entity_version / movement_seq 版本覆盖,
+/// 不做连续判缺(见 §3.3)。
+table EntityState {
+  entity_id:ulong;
+  entity_version:ulong;
+  movement_seq:uint;
+  position:Vec2Fixed;
+  facing:ushort;         // turns:0..65535 = 一整圈(见上方说明)
+  state_flags:uint;      // 位标记(战斗中/隐身/骑乘…),取值表属玩法
+  display_ref:uint;      // 外观引用,取值表属玩法
+}

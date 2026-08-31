@@ -1,0 +1,29 @@
+{
+  "protocol_version": 1,
+  "scene_ref": {
+    "kind": "LINE",
+    "id": 1,
+    "generation": 1
+  },
+  "visibility": "PRIVATE",
+  "recipient_role_id": 0,
+  "batch_id": 4,
+  "chunk_index": 0,
+  "chunk_count": 1,
+  "first_stream_seq": 1,
+  "last_stream_seq": 1,
+  "events": [
+    {
+      "event_id": 4,
+      "stream_seq": 1,
+      "server_time_ms": 1,
+      "critical": true,
+      "payload_type": "AoiLeave",
+      "payload": {
+        "entity_ids": [
+          1
+        ]
+      }
+    }
+  ]
+}

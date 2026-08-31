@@ -1,0 +1,28 @@
+{
+  "protocol_version": 1,
+  "supported_protocol_versions": [
+    1
+  ],
+  "body_type": "PublicSnapshot",
+  "body": {
+    "common": {
+      "scene_ref": {
+        "kind": "LINE",
+        "id": 10023,
+        "generation": 7
+      },
+      "scene_version": 9,
+      "public_scene_seq": 33,
+      "navigation_version": 2,
+      "server_time_ms": 123,
+      "public_states": [
+        {
+          "kind": 1,
+          "payload": [
+            9
+          ]
+        }
+      ]
+    }
+  }
+}

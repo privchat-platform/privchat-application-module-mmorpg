@@ -1,0 +1,9 @@
+# 生成物一律不进仓:由 protocol/scripts/generate.sh 现场产出。
+protocol/generated/
+*_generated.h
+*_generated.cpp
+protocol/schemas/privchat/
+
+# Gradle / Kotlin(模块实现落地后适用)
+build/
+.gradle/

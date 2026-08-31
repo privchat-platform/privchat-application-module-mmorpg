@@ -1,0 +1,8 @@
+{
+  "protocol_version": 1,
+  "scene_session_id": 42,
+  "request_id": "",
+  "movement_seq": 10,
+  "command_type": "Stop",
+  "command": {}
+}

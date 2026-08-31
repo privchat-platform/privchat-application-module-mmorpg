@@ -1,0 +1,29 @@
+{
+  "protocol_version": 1,
+  "scene_ref": {
+    "kind": "LINE",
+    "id": 1,
+    "generation": 1
+  },
+  "visibility": "PUBLIC",
+  "recipient_role_id": 0,
+  "batch_id": 6,
+  "chunk_index": 3,
+  "chunk_count": 2,
+  "first_stream_seq": 1,
+  "last_stream_seq": 1,
+  "events": [
+    {
+      "event_id": 6,
+      "stream_seq": 1,
+      "server_time_ms": 1,
+      "critical": false,
+      "payload_type": "PublicSceneChanged",
+      "payload": {
+        "scene_version": 1,
+        "payload_kind": 1,
+        "payload": []
+      }
+    }
+  ]
+}

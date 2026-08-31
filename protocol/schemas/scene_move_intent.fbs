@@ -1,0 +1,42 @@
+include "scene_common.fbs";
+namespace privchat.mmorpg.scene;
+
+/// 客户端 → 服务端(经 transfer_bytes)。
+///
+/// **不含 role_id / scene_ref** —— 服务端从
+/// `authenticated user + channel_id + scene_session_id` 解析身份;
+/// 客户端提供的身份字段一律不采信(见 §4.1)。
+/// 走到目标点。点击寻路的常规形态。
+table MoveTo { target_position:Vec2Fixed; }
+
+/// 就地停下。**不是**"走到当前位置" —— 服务端据此中止当前路径并结算落点。
+table Stop {}
+
+/// 取消当前路径。
+///
+/// **绝不回滚已确认的世界状态** —— "回到路径起点"会撤销途中已发生的移动、
+/// 触发器与交互,是可被利用的瞬移/回滚漏洞。语义固定为:
+///
+///   路径尚未开始  → 取消该计划,位置不变
+///   路径已经开始  → 在**服务端当前权威位置**停止
+///
+/// 与 Stop 的区别:Stop 针对"当前正在走的任意路径";CancelPath 指定
+/// path_id,只取消该路径(用于快速连点时避免误停新路径)。
+table CancelPath { path_id:ulong; }
+
+union MoveCommand { MoveTo, Stop, CancelPath }
+
+table MoveIntentEnvelope {
+  protocol_version:uint;
+  scene_session_id:ulong;
+  request_id:string (required);
+  movement_seq:uint;              // 该角色内单调递增;Stop/Cancel 同样占用新值
+  /// FlatBuffers 的 union **无法标 required**,`MoveCommand_NONE` 在
+  /// 结构上永远合法。因此"必须有 command"是**语义校验**(规则 V-I1),
+  /// 由 `scripts/validate.py` 执行,负向 fixture
+  /// `fixtures/scene/v1/invalid/intent/v_i1__command_none.bin` 守护。
+  command:MoveCommand;
+  client_time_ms:ulong;           // **仅诊断**,不参与任何权威裁决
+}
+root_type MoveIntentEnvelope;
+file_identifier "MMI1";

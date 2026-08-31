@@ -1,0 +1,69 @@
+{
+  "protocol_version": 1,
+  "supported_protocol_versions": [
+    1
+  ],
+  "body_type": "PrivateSnapshot",
+  "body": {
+    "common": {
+      "scene_ref": {
+        "kind": "LINE",
+        "id": 10023,
+        "generation": 7
+      },
+      "scene_version": 9,
+      "public_scene_seq": 33,
+      "navigation_version": 2,
+      "server_time_ms": 123,
+      "public_states": [
+        {
+          "kind": 1,
+          "payload": [
+            9
+          ]
+        }
+      ]
+    },
+    "private_aoi_revision": 5,
+    "recipient_role_id": 88,
+    "scene_session_id": 42,
+    "self_entity": {
+      "entity_id": 100,
+      "entity_version": 1,
+      "movement_seq": 1,
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "facing": 0,
+      "state_flags": 0,
+      "display_ref": 0
+    },
+    "aoi_entities": [
+      {
+        "entity_id": 101,
+        "entity_version": 1,
+        "movement_seq": 1,
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "facing": 0,
+        "state_flags": 0,
+        "display_ref": 0
+      },
+      {
+        "entity_id": 102,
+        "entity_version": 1,
+        "movement_seq": 1,
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "facing": 0,
+        "state_flags": 0,
+        "display_ref": 0
+      }
+    ]
+  }
+}

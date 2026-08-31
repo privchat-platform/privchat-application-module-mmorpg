@@ -1,0 +1,46 @@
+{
+  "protocol_version": 1,
+  "scene_ref": {
+    "kind": "LINE",
+    "id": 1,
+    "generation": 1
+  },
+  "visibility": "PRIVATE",
+  "recipient_role_id": 9,
+  "batch_id": 8,
+  "chunk_index": 0,
+  "chunk_count": 1,
+  "first_stream_seq": 1,
+  "last_stream_seq": 1,
+  "events": [
+    {
+      "event_id": 8,
+      "stream_seq": 1,
+      "server_time_ms": 1,
+      "critical": true,
+      "payload_type": "AoiRebase",
+      "payload": {
+        "aoi_revision": 3,
+        "entity_ids": [
+          1,
+          2,
+          3
+        ],
+        "entities": [
+          {
+            "entity_id": 1,
+            "entity_version": 1,
+            "movement_seq": 1,
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "facing": 0,
+            "state_flags": 0,
+            "display_ref": 0
+          }
+        ]
+      }
+    }
+  ]
+}

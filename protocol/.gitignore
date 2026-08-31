@@ -1,0 +1,7 @@
+# 生成物一律不进仓:由 scripts/generate.sh 现场产出。
+# 曾误提交过 schemas/ 下的 .kt 与 _generated.h —— 陈旧产物比没有更危险,
+# 它们会掩盖 schema 与生成结果不一致的问题。
+generated/
+*_generated.h
+*_generated.cpp
+schemas/privchat/

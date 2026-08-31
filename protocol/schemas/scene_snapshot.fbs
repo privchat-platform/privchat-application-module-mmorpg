@@ -1,0 +1,63 @@
+include "scene_common.fbs";
+namespace privchat.mmorpg.scene;
+
+/// HTTP 响应体(application/x-flatbuffers)。**单次原子视图,禁止分页** ——
+/// 分页期间场景仍在推进,会拼出跨版本状态。
+///
+/// public 与 private 共用本 root;private 专属字段仅在
+/// `/roles/{role_id}/private-snapshot` 填充,public 响应中留空。
+/// 一项公共场景状态。kind 的取值表属玩法(`module-mmorpg` 领域 spec)。
+table PublicSceneState {
+  kind:uint;
+  payload:[ubyte];
+}
+
+/// 两种 snapshot 的**共有**部分。
+table SnapshotCommon {
+  scene_ref:SceneRef (required);
+  scene_version:ulong;        // 场景权威**结构**状态,不因玩家移动递增
+  public_scene_seq:ulong;     // 公共流水位
+  navigation_version:uint;
+  server_time_ms:ulong;
+
+  /// 公共场景状态(天气、场景开关、NPC 刷新批次…)。
+  /// **字段必填,但允许空数组** —— 无公共状态的场景是合法的;
+  /// 要求的是"字段存在",而不是"必须有内容"(V-S3)。
+  /// 只给版本号而不给这个字段则无法恢复实际状态。
+  public_states:[PublicSceneState] (required);
+}
+
+/// 公共 / 观战投影。**不含任何 private 字段**。
+table PublicSnapshot {
+  common:SnapshotCommon (required);
+}
+
+/// 角色私有投影,经 `/roles/{role_id}/private-snapshot` 获取。
+table PrivateSnapshot {
+  common:SnapshotCommon (required);
+  private_aoi_revision:ulong;
+  recipient_role_id:ulong;
+  scene_session_id:ulong;
+
+  /// **自身实体的完整状态**,必填。
+  /// 只给 self_entity_id 不够:自身可能不在 aoi_entities 里
+  /// (视野以自己为中心,实现可能不把自己算进去)。
+  self_entity:EntityState (required);
+
+  /// 视野内的**其他**实体。**约定:不含自身** ——
+  /// 含与不含各有实现,不约定会让客户端要么漏渲染自己要么渲染两次。
+  aoi_entities:[EntityState];
+}
+
+/// 用 union 表达结构差异,而不是"同一张表、一半字段留空"——
+/// 后者无法从消息本身判断该按哪种解读,也让"private 字段泄露进 public"
+/// 变成一个纯约定而非结构约束。
+union SnapshotBody { PublicSnapshot, PrivateSnapshot }
+
+table SceneSnapshotEnvelope {
+  protocol_version:uint;
+  supported_protocol_versions:[uint];
+  body:SnapshotBody;
+}
+root_type SceneSnapshotEnvelope;
+file_identifier "MSS1";

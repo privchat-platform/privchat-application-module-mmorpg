@@ -1,0 +1,19 @@
+include "scene_common.fbs";
+namespace privchat.mmorpg.scene;
+
+/// transfer 的**响应体**,只描述**成功受理或幂等回放**。
+///
+/// 拒绝走**外层** `TransferResponse.code = 216xx` 且 `data` 为空 ——
+/// 内外双层 code 会让 transfer_bytes 把拒绝当成功
+/// (同 MMO_BATTLE_PROTOCOL_SPEC 的 BattleCommandAck)。
+table MoveIntentAck {
+  protocol_version:uint;
+  scene_session_id:ulong;
+  request_id:string (required);
+  accepted_movement_seq:uint;
+  entity_version:ulong;
+  replayed:bool;                  // true = 幂等回放首次结果
+  path_id:ulong;                  // 关联随后下发的 MovementStarted
+}
+root_type MoveIntentAck;
+file_identifier "MMA1";
