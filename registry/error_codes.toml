@@ -165,14 +165,3 @@ domain = "mmo-scene"
 code = 21610
 name = "SceneCommandInvalid"
 domain = "mmo-scene"
-
-# --- 诊断（21699，段末）---
-#
-# 不是 scene 协议的一部分。放在自持号段的**末端**而不是 21600 起始处，是为了
-# 不让一个 demo 码混在正式 scene 语义中间；MMO_WORLD_SCENE_SPEC 也没有、
-# 也不应该定义它。正式实现落地时随 MmorpgDiagnosticEchoHandler 一起删除。
-
-[[code]]
-code = 21699
-name = "DemoRouteUnknown"
-domain = "mmo-scene"

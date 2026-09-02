@@ -19,5 +19,5 @@ import neton.core.annotations.Module
  *
  * id 省略：取 build.gradle.kts 的 `ksp { arg("neton.moduleId", "mmorpg") }`。
  */
-@Module(dependsOn = ["privchat"], migrations = false)
+@Module(dependsOn = ["privchat"], migrations = true)
 object MmorpgModule

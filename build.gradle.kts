@@ -90,3 +90,11 @@ tasks.matching { it.name.matches(Regex("compileKotlin(MacosArm64|LinuxX64|LinuxA
 tasks.matching { it.name.matches(Regex("kspKotlin(LinuxX64|LinuxArm64|MingwX64)")) }.configureEach {
     dependsOn("kspKotlinMacosArm64")
 }
+
+// 把 SQL 迁移嵌进二进制：K/N 运行时不做文件 IO，迁移脚本必须编译期内联。
+// @Module(migrations = true) 会去找按约定 FQN 生成的 init.generated.MmorpgMigrationResources，
+// 没有这段就找不到，KSP 直接报错。
+extra["neton.migration.moduleId"] = "mmorpg"
+extra["neton.migration.dialects"] = listOf("postgresql")
+extra["neton.migration.sqlSourceDir"] = file("sql")
+apply(from = "../../Neton/neton/scripts/embed-migration-resources.gradle.kts")
