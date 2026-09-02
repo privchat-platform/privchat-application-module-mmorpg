@@ -165,3 +165,10 @@ domain = "mmo-scene"
 code = 21610
 name = "SceneCommandInvalid"
 domain = "mmo-scene"
+
+[[code]]
+code = 21611
+name = "SceneRouteUnknown"
+domain = "mmo-scene"
+# 客户端发来的 transfer route 本模块不认识。明确报错而不是静默成功：
+# route 拼错是最常见的接入错误，静默会让它在客户端看起来像"服务端没反应"。
