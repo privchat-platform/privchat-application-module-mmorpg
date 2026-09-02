@@ -1,12 +1,15 @@
 package init
 
-import logic.transfer.MmorpgTransferHandler
+import logic.transfer.MmorpgDiagnosticEchoHandler
 import neton.core.component.NetonContext
 import neton.logging.LoggerFactory
 import transfer.PrivChatTransferServiceRegistry
 
 /**
  * MMORPG 模块的装配入口。
+ *
+ * **当前是可运行的链路验证 demo，不是 MMORPG 业务实现**，只注册一个诊断 echo
+ * handler。正式的 scene / battle 协议见 privchat-docs 下的 MMO_* spec。
  *
  * **注册发生在这里，不在 `PrivchatRuntimeBootstrap`。** module-privchat 是基础
  * 设施，它提供 [PrivChatTransferServiceRegistry] 但不认识任何业务模块；反过来
@@ -28,13 +31,13 @@ object MmorpgRuntimeBootstrap {
 
         val registry = ctx.get(PrivChatTransferServiceRegistry::class)
         registry.register(
-            MmorpgTransferHandler(
+            MmorpgDiagnosticEchoHandler(
                 log = ctx.get(LoggerFactory::class).get("mmorpg.transfer"),
             ),
         )
         log.info(
             "mmorpg.transfer_handler.registered service=mmorpg " +
-                "routes=[${MmorpgTransferHandler.ROUTE_SCENE_MOVE}]",
+                "routes=[${MmorpgDiagnosticEchoHandler.ROUTE_DIAGNOSTIC_ECHO}]",
         )
     }
 }

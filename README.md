@@ -1,6 +1,21 @@
 # privchat-application-module-mmorpg
 
-MMORPG 业务模块(**尚未实现**,当前只有协议部分)。
+MMORPG 业务模块。
+
+> **当前状态:可运行的链路验证 demo,不是 MMORPG 业务实现。**
+>
+> 模块只注册一个诊断 handler(`mmorpg/diagnostic/echo`),把收到的字节原样回传
+> 并附一份身份摘要。它验证的是「字节与调用者身份能否穿过 privchat-server →
+> ServerEvent dispatch → 两级路由 → 本模块 → 原路返回」,**不实现任何玩法**。
+>
+> 正式的 scene / battle 协议(`scene_session_id`、`movement_seq`、`MoveCommand`、
+> 幂等、权威位置、AOI)见 privchat-docs 的 `MMO_*_SPEC`,尚未实现。诊断 route
+> 与正式 route 刻意分开,正式实现落地时删除
+> `MmorpgDiagnosticEchoHandler` 与错误码 21699 即可。
+>
+> `protocol/generated/kotlin` **不在编译路径上**:flatc 的 Kotlin 后端只产出 JVM
+> 绑定(`java.nio.ByteBuffer` / `com.google.flatbuffers.Table`),22 个文件里 19 个
+> 在 Kotlin/Native 编不过。schema 与 fixtures 原样保留,等编码方案确定。
 
 按 `MMO_ARCHITECTURE_SPEC`,本模块是 MMO 核心玩法与战斗的唯一 owner,
 同时**自持**自己的协议与错误码:
