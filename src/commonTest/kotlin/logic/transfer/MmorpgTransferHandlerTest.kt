@@ -92,8 +92,11 @@ class MmorpgTransferHandlerTest {
     fun rejectsAnUnknownRouteInsteadOfSwallowingIt() = runTest {
         // mmorpg/scene/move 还没实装。前缀匹配会把它误吞进 heartbeat 分支，
         // 客户端会以为移动成功了。
+        //
+        // 用 21610 而不是 21600：客户端收到 21600 会去重建场景，但场景是好的，
+        // 只是这个动作本端还不会。
         val result = handler.handle(ctx("mmorpg/scene/move", "{}"))
-        assertEquals(MmoErrorCodes.SCENE_NOT_FOUND, result.code)
+        assertEquals(MmoErrorCodes.SCENE_COMMAND_INVALID, result.code)
         assertTrue("mmorpg/scene/move" in result.message)
     }
 

@@ -25,4 +25,13 @@ object MmoErrorCodes {
 
     /** `protocol_version` 超出服务端支持范围。 */
     const val SCENE_PROTOCOL_VERSION_UNSUPPORTED: Int = 21609
+
+    /**
+     * route 不被本服务端识别，或指令在当前实现中尚未提供。
+     *
+     * 与 [SCENE_NOT_FOUND] 分开：那是"你要的场景不在"，这是"你要的动作我不会"。
+     * 混用会让客户端在收到 21600 时去重建场景，而问题其实是它发了一个本端还
+     * 没实装的 route。
+     */
+    const val SCENE_COMMAND_INVALID: Int = 21610
 }

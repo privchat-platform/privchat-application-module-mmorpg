@@ -34,7 +34,7 @@ class MmorpgTransferHandler(
             else -> {
                 log.warn("mmo.transfer.unknown_route route=${ctx.route} channel_id=${ctx.channelId}")
                 PrivChatTransferResult.error(
-                    MmoErrorCodes.SCENE_NOT_FOUND,
+                    MmoErrorCodes.SCENE_COMMAND_INVALID,
                     "unknown mmorpg route: ${ctx.route}",
                 )
             }

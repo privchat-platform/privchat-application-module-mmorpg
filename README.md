@@ -2,31 +2,48 @@
 
 MMORPG 业务模块。
 
-> **当前状态:可运行的链路验证 demo,不是 MMORPG 业务实现。**
+> **当前状态:场景最小闭环已实装,其余仍是设计稿。**
 >
-> 模块只注册一个诊断 handler(`mmorpg/diagnostic/echo`),把收到的字节原样回传
-> 并附一份身份摘要。它验证的是「字节与调用者身份能否穿过 privchat-server →
-> ServerEvent dispatch → 两级路由 → 本模块 → 原路返回」,**不实现任何玩法**。
+> 能跑通的链路:角色 → 进入场景 → `scene_session` + Room ticket → 订阅 Room
+> → Transfer 心跳 → 收到他人进入/离开事件。契约与"哪些没实装"的清单见
+> privchat-docs 的 `MMO_WORLD_SCENE_SPEC` §12。
 >
-> 正式的 scene / battle 协议(`scene_session_id`、`movement_seq`、`MoveCommand`、
-> 幂等、权威位置、AOI)见 privchat-docs 的 `MMO_*_SPEC`,尚未实现。诊断 route
-> 与正式 route 刻意分开,正式实现落地时删除
-> `MmorpgDiagnosticEchoHandler` 与错误码 21699 即可。
+> 尚未实装:`mmorpg/scene/move`(需要 `movement_seq`、权威寻路与幂等,缺任一
+> 项都会做成之后必须推翻的接口)、AOI、场景状态机、场景↔战斗 saga、队伍跟随。
+> 未实装的 route 返回 `21610 SceneCommandInvalid` 而**不是**静默成功。
 >
-> `protocol/generated/kotlin` **不在编译路径上**:flatc 的 Kotlin 后端只产出 JVM
-> 绑定(`java.nio.ByteBuffer` / `com.google.flatbuffers.Table`),22 个文件里 19 个
-> 在 Kotlin/Native 编不过。schema 与 fixtures 原样保留,等编码方案确定。
+> 编码当前全部走 JSON,收口在 `logic/codec/`。`protocol/generated/kotlin`
+> **不在编译路径上**:flatc 的 Kotlin 后端只产出 JVM 绑定
+> (`java.nio.ByteBuffer` / `com.google.flatbuffers.Table`),22 个文件里 19 个在
+> Kotlin/Native 编不过。schema 与 fixtures 原样保留,等编码方案确定。
 
-按 `MMO_ARCHITECTURE_SPEC`,本模块是 MMO 核心玩法与战斗的唯一 owner,
-同时**自持**自己的协议与错误码:
+## 目录
 
 ```text
 protocol/
   schemas/      FlatBuffers .fbs(场景已有,战斗待补)
   fixtures/     跨语言 golden fixtures 与负向样本
   scripts/      生成与语义校验
-src/            业务实现(待建)
+sql/            自持表的迁移(mmo_role / mmo_scene_channel / mmo_scene_session)
+src/commonMain/kotlin/
+  controller/   HTTP 面(enter / leave / snapshot / 角色)
+  logic/scene/  场景生命周期、channel provision、仓储
+  logic/codec/  线格式(今天 JSON,将来 FlatBuffers)
+  logic/transfer/  Transfer handler
 ```
+
+## 服务注册
+
+`privchat_business_service.name = "mmorpg"`(id 9200)。这一行由
+**module-privchat 的迁移**声明——那张表的 owner 是 privchat,跨模块直写他人的表
+会让两份迁移对同一形状各有假设。handler 则由本模块自己在 runtime bootstrap 里
+注册,不由 `PrivchatRuntimeBootstrap` 注册,否则基础模块会反向依赖业务模块。
+
+`service_id` 不出现在代码里:dispatcher 走
+`channel_id → service_id → service.name → registry.find(name)`。
+
+按 `MMO_ARCHITECTURE_SPEC`,本模块是 MMO 核心玩法与战斗的唯一 owner,
+同时**自持**自己的协议与错误码:
 
 ## 为什么协议放在这里,而不是独立仓
 
@@ -46,6 +63,10 @@ src/            业务实现(待建)
 `privchat-protocol` 的 registry 只**保留**这两个段位、不登记具体码 ——
 核心通信层不需要认识 `SceneNotFound` 这类玩法概念,
 `TransferResponse.code` 本来就是整数,SDK 与客户端原样透传即可。
+
+具体码登记在本仓的 `registry/error_codes.toml`。**不要就地新造码**:
+registry 里记录过两次因此产生的真实冲突(20900 / 20920),代价是两个业务对同一个
+数字有不同理解,而客户端只看得到数字。
 
 ## 与 privchat 各层的边界
 
