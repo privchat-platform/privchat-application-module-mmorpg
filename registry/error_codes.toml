@@ -175,3 +175,8 @@ domain = "mmo-scene"
 code = 21612
 name = "SceneInteractOutOfRange"
 domain = "mmo-scene"
+
+[[code]]
+code = 21613
+name = "SceneStateNotAllowed"
+domain = "mmo-scene"

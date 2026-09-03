@@ -1,0 +1,57 @@
+// 真源:本文件。MMO_BATTLE_PROTOCOL_SPEC §13 是它的镜像,不一致时以此为准。
+// 每个 root 独立成文件:root_type / file_identifier 是文件级声明(§2.1)。
+include "battle_common.fbs";
+namespace privchat.mmorpg.battle;
+
+// 公开投影:**对所有观察者一致**(public snapshot 无观察者身份,见 §6.3)。
+// 精确资源真值只出现在 role-specific 的 ActorPrivateState 中。
+table ActorPublicState {
+  actor_id:ulong;
+  owner_role_id:ulong;
+  alive:bool;
+  position:uint;
+  public_buffs:[BuffState];
+  hp_percent:ubyte;                      // 0-100 百分比,所有人可见
+  mp_percent:ubyte;
+}
+
+table SubmittedCommand {
+  command_slot_id:ulong;
+  actor_id:ulong;
+  accepted_action_seq:uint;
+  payload:CommandPayload;
+}
+
+table ActorPrivateState {
+  actor_id:ulong;
+  exact_hp:long;                         // 精确资源:自己或该角色获准查看的单位
+  exact_mp:long;
+  stats:[StatValue];                     // 隐藏属性
+  private_buffs:[BuffState];
+  skills:[SkillState];                   // 候选技能与可用性
+  selectable_target_ids:[ulong];
+}
+
+table BattleSnapshotEnvelope {
+  protocol_version:uint;
+  supported_protocol_versions:[uint];
+  state_version:ulong;
+  public_event_seq:ulong;
+  battle_id:ulong;
+  round:uint;
+  phase:Phase;
+  phase_version:uint;
+  round_deadline_at_ms:ulong;
+  actors:[ActorPublicState];
+  initiative_order:[ulong];
+  rng_algorithm_version:uint;            // 不含 seed
+
+  // ---- 仅 private snapshot 填充 ----
+  private_event_seq:ulong;
+  recipient_role_id:ulong;
+  open_slots:[SlotInfo];
+  submitted_commands:[SubmittedCommand];
+  private_actor_states:[ActorPrivateState];
+}
+root_type BattleSnapshotEnvelope;
+file_identifier "MBS1";

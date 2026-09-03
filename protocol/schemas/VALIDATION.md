@@ -74,3 +74,47 @@ FlatBuffers 只保证**结构**合法,以下约束它一概不执行 —— unio
 
 负向 fixture 按 `<规则编号>__<描述>.bin` 命名,校验器**必须以对应编号拒绝**
 —— 放过任何一条即视为它已失效(同错误码门禁的负向自检)。
+
+---
+
+# 战斗(MMO_BATTLE_PROTOCOL_SPEC)
+
+同上原则:FlatBuffers 不执行的约束在此列成可执行规则,编号 V-B*,每条由负向
+fixture 守护。JSON 过渡期(§15.4)同样适用——规则是语义的,不是编码的。
+
+## 上行:BattleCommandEnvelope(MBC1)
+
+| # | 规则 | 违反时 |
+|---|---|---|
+| V-BC1 | `payload` 不得为 `CommandPayload_NONE` | 拒绝 `21407 BattleCommandRejected` |
+| V-BC2 | `request_id` 非空且 ≤ 64 字节 | 拒绝 `21410 BattlePayloadTooLarge` |
+| V-BC3 | `phase` 必须是 `COMMAND` | 拒绝 `21401 BattlePhaseMismatch` |
+| V-BC4 | `command_slot_id` 必须是服务端签发、未失效、属于 `(role_id, actor_id)` 的 slot | 拒绝 `21413` / `21414` |
+| V-BC5 | payload 的指令类型必须在该 slot 的 `allowed_commands` 内 | 拒绝 `21415` |
+| V-BC6 | `round` / `phase_version` 必须与服务端一致 | 拒绝 `21402` / `21403` |
+| V-BC7 | `action_seq` 必须大于该 slot 的 `accepted_action_seq` | 拒绝 `21416` |
+| V-BC8 | 幂等矩阵(spec §4.3):同 `request_id` 载荷同 → 回放;载荷不同 → `21411`;同 `action_seq` 内容不同 → `21412` | 见左 |
+
+> **判定顺序冻结**:V-BC2 → 身份链(user 拥有 role,role 在战斗中,21404/21405)
+> → **V-BC8 幂等命中** → V-BC3 / V-BC6 → V-BC4 / V-BC5 → V-BC7 → V-BC1。
+> 幂等命中必须早于阶段与序号判定,否则合法重试会在 LOCKED 之后被当成非法提交。
+
+## 下行:BattleEventBatchEnvelope(MBE1)
+
+| # | 规则 | 违反时 |
+|---|---|---|
+| V-BE1 | 每个 `BattleEvent.payload` 不得为 `EventPayload_NONE` | 接收方丢弃整批并拉 snapshot |
+| V-BE2 | `visibility == PUBLIC` 时 `recipient_role_id` 必须为 0;PRIVATE 时必须等于接收者 | 同上 |
+| V-BE3 | PUBLIC 批次内**不得**出现 `CommandAccepted` / `SlotsOffered`(私有事件) | 同上——这是 spec §6.2「指令在 RESOLVE 前不得泄漏」的防线 |
+| V-BE4 | `chunk_index < chunk_count`,`chunk_count >= 1`,`first_stream_seq <= last_stream_seq` | 丢弃整批 |
+| V-BE5 | `events` 非空且 ≤ 128;批内 `stream_seq` 严格递增 | 丢弃整批 |
+| V-BE6 | `default_action_applied` 与 `auto_played` 不得同时为 true | 丢弃整批 |
+
+## Snapshot:BattleSnapshotEnvelope(MBS1)
+
+| # | 规则 | 违反时 |
+|---|---|---|
+| V-BS1 | public 端点返回的快照 `recipient_role_id == 0`,且 `open_slots` / `submitted_commands` / `private_actor_states` 为空 | 视为服务端缺陷(视野泄露) |
+| V-BS2 | private 端点返回的快照 `recipient_role_id` 等于路径中的 `role_id` | 视为服务端缺陷 |
+| V-BS3 | `actors` 必填(可为空数组);`hp_percent` / `mp_percent` ∈ 0..100 | 视为响应损坏 |
+| V-BS4 | 解压后 ≤ 1 MiB | 客户端拒绝解压 |

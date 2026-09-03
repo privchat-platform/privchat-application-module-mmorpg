@@ -1,0 +1,18 @@
+// 真源:本文件。MMO_BATTLE_PROTOCOL_SPEC §13 是它的镜像,不一致时以此为准。
+// 每个 root 独立成文件:root_type / file_identifier 是文件级声明(§2.1)。
+include "battle_common.fbs";
+namespace privchat.mmorpg.battle;
+
+table BattleCommandAck {
+  protocol_version:uint;
+  battle_id:ulong;
+  command_slot_id:ulong;
+  accepted_action_seq:uint;
+  replaced_previous:bool;                // 是否覆盖了该 slot 的旧指令
+  round:uint;
+  phase:Phase;
+  phase_version:uint;
+  slot_deadline_at_ms:ulong;
+}
+root_type BattleCommandAck;
+file_identifier "MBA1";

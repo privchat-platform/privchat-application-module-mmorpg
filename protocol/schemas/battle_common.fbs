@@ -1,0 +1,44 @@
+// 真源:本文件。MMO_BATTLE_PROTOCOL_SPEC §13 是它的镜像,不一致时以此为准。
+// 每个 root 独立成文件:root_type / file_identifier 是文件级声明(§2.1)。
+namespace privchat.mmorpg.battle;
+
+enum Phase : ubyte { CREATED, PREPARE, COMMAND, LOCKED, RESOLVE, ROUND_END, SETTLE, CLOSED }
+enum Visibility : ubyte { PUBLIC, PRIVATE }
+enum SlotKind : ubyte { PRIMARY, EXTRA, REACTION, SYSTEM }
+enum RetargetReason : ubyte { NONE, TARGET_DEAD, TARGET_LEFT, SKILL_RULE }
+enum ControlState : ubyte { MANUAL, AUTO_PLAY, DISCONNECTED_TIMEOUT }
+enum CommandKind : ubyte {
+  ATTACK, CAST_SKILL, USE_ITEM, DEFEND, PROTECT,
+  SUMMON, RECALL, CAPTURE, ESCAPE, WAIT
+}
+
+// ---- 指令载荷(Command 与 Snapshot 回显共用)----
+table Attack    { selected_target_id:ulong; }
+table CastSkill { skill_id:uint; selected_target_id:ulong; }
+table UseItem   { item_instance_id:ulong; selected_target_id:ulong; }
+table Defend    {}
+table Protect   { protect_target_id:ulong; }
+table Summon    { pet_id:ulong; }
+table Recall    { pet_actor_id:ulong; }
+table Capture   { selected_target_id:ulong; }
+table Escape    {}                       // 正常回合指令,可失败
+table Wait      {}
+
+union CommandPayload {
+  Attack, CastSkill, UseItem, Defend, Protect, Summon, Recall, Capture, Escape, Wait
+}
+
+table SlotInfo {
+  command_slot_id:ulong;
+  actor_id:ulong;
+  slot_kind:SlotKind;
+  allowed_commands:[CommandKind];        // 显式枚举列表,不用 bitmask
+  required:bool;
+  deadline_at_ms:ulong;
+  accepted_action_seq:uint;
+}
+
+// 数值一律定点(scale 由玩法 spec 定义),禁用 float(§5)
+table StatValue { key:uint; value:long; }
+table BuffState { buff_id:uint; stacks:uint; remaining_rounds:uint; }
+table SkillState { skill_id:uint; usable:bool; cooldown_rounds:uint; cost:long; }

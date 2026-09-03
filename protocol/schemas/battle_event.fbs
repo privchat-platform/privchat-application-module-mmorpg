@@ -1,0 +1,51 @@
+// 真源:本文件。MMO_BATTLE_PROTOCOL_SPEC §13 是它的镜像,不一致时以此为准。
+// 每个 root 独立成文件:root_type / file_identifier 是文件级声明(§2.1)。
+include "battle_common.fbs";
+namespace privchat.mmorpg.battle;
+
+table DamageDealt {
+  source_actor_id:ulong;
+  resolved_target_ids:[ulong];
+  amounts:[long];                        // 定点数
+  retarget_reason:RetargetReason;
+}
+table PhaseChanged { from:Phase; to:Phase; round:uint; deadline_at_ms:ulong; }
+table CommandAccepted { command_slot_id:ulong; accepted_action_seq:uint; }
+table SlotsOffered { slots:[SlotInfo]; }          // 承载可提交的行动机会
+table ActorDied { actor_id:ulong; }
+table InitiativeResolved { order:[ulong]; rng_algorithm_version:uint; rng_cursor:ulong; }
+table BattleSettled { settlement_request_id:string; winner_side:ubyte; }
+
+union EventPayload {
+  DamageDealt, PhaseChanged, CommandAccepted, SlotsOffered,
+  ActorDied, InitiativeResolved, BattleSettled
+}
+
+table BattleEvent {
+  event_id:ulong;
+  stream_seq:ulong;
+  resulting_state_version:ulong;
+  critical:bool;
+  request_id:string;                     // 可选
+  server_time_ms:ulong;
+  default_action_applied:bool;
+  auto_played:bool;
+  control_state:ControlState;
+  payload:EventPayload;
+}
+
+table BattleEventBatchEnvelope {
+  protocol_version:uint;
+  battle_id:ulong;
+  round:uint;
+  visibility:Visibility;
+  recipient_role_id:ulong;               // 仅 PRIVATE
+  batch_id:ulong;
+  chunk_index:ushort;
+  chunk_count:ushort;
+  first_stream_seq:ulong;
+  last_stream_seq:ulong;
+  events:[BattleEvent];
+}
+root_type BattleEventBatchEnvelope;
+file_identifier "MBE1";

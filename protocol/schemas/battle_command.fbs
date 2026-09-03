@@ -1,0 +1,20 @@
+// 真源:本文件。MMO_BATTLE_PROTOCOL_SPEC §13 是它的镜像,不一致时以此为准。
+// 每个 root 独立成文件:root_type / file_identifier 是文件级声明(§2.1)。
+include "battle_common.fbs";
+namespace privchat.mmorpg.battle;
+
+table BattleCommandEnvelope {
+  protocol_version:uint;
+  request_id:string (required);
+  battle_id:ulong;
+  role_id:ulong;                         // 权限所有者
+  actor_id:ulong;                        // 行动单位
+  command_slot_id:ulong;                 // 服务端签发
+  round:uint;
+  phase:Phase;
+  phase_version:uint;
+  action_seq:uint;                       // (battle_id, actor_id) 内递增
+  payload:CommandPayload;
+}
+root_type BattleCommandEnvelope;
+file_identifier "MBC1";
