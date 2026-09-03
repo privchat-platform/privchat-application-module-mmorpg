@@ -39,7 +39,7 @@ open class SceneChannelService(
 ) {
 
     /** 后台开场景：已存在则直接返回；否则申请 Room、写索引、登记路由。幂等。 */
-    open suspend fun provision(sceneRef: SceneRef): Long {
+    open suspend fun provision(sceneRef: SceneRef, mapId: Long = 1): Long {
         val encoded = sceneRef.encode()
         findChannel(encoded)?.let { return it.channelId }
 
@@ -67,7 +67,7 @@ open class SceneChannelService(
         }
 
         MmoSceneChannelTable.insert(
-            MmoSceneChannel(sceneRef = encoded, channelId = channelId),
+            MmoSceneChannel(sceneRef = encoded, channelId = channelId, mapId = mapId),
         )
         businessChannelResolver.bind(
             channelId = channelId,
@@ -86,6 +86,9 @@ open class SceneChannelService(
 
     /** 只查不建。channel 尚未 provision 或已关闭时返回 `null`。 */
     open suspend fun find(sceneRef: SceneRef): Long? = findChannel(sceneRef.encode())?.channelId
+
+    /** 场景行（含 map_id）。 */
+    open suspend fun findScene(sceneRef: SceneRef): MmoSceneChannel? = findChannel(sceneRef.encode())
 
     /** 全部已开场景（含已关闭的，供后台列表）。 */
     open suspend fun list(): List<MmoSceneChannel> =

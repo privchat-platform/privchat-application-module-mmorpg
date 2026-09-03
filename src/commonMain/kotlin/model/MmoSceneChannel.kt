@@ -29,6 +29,10 @@ data class MmoSceneChannel(
     @Column(name = "channel_id")
     val channelId: Long,
 
+    /** 场景挂在哪张地图上（`mmo_map.id`）。 */
+    @Column(name = "map_id")
+    val mapId: Long = 1,
+
     val status: Int = 1,
 
     @CreatedAt

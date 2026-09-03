@@ -1,5 +1,9 @@
 package logic.scene
 
+import logic.map.MapRepository
+import logic.map.SceneMap
+import model.MmoMap
+import model.MmoNpc
 import model.MmoRole
 import model.MmoSceneSession
 import neton.logging.Fields
@@ -60,6 +64,7 @@ class FakeSessionRepository : MmoSceneSessionRepository(NoopLogger) {
         channelId: Long,
         sessionEpoch: Long,
         nowMs: Long,
+        spawn: Vec2Fixed,
     ): MmoSceneSession {
         val s = MmoSceneSession(
             id = nextId++,
@@ -69,8 +74,8 @@ class FakeSessionRepository : MmoSceneSessionRepository(NoopLogger) {
             sessionEpoch = sessionEpoch,
             status = 1,
             lastSeenAt = nowMs,
-            startX = SceneMap.SPAWN.x, startY = SceneMap.SPAWN.y,
-            targetX = SceneMap.SPAWN.x, targetY = SceneMap.SPAWN.y,
+            startX = spawn.x, startY = spawn.y,
+            targetX = spawn.x, targetY = spawn.y,
         )
         rows[s.id] = s
         return s
@@ -143,13 +148,42 @@ class FakeChannelService(
     private val byScene = mutableMapOf<String, Long>()
     private var nextChannel = 5000L
 
-    override suspend fun provision(sceneRef: SceneRef): Long =
+    override suspend fun provision(sceneRef: SceneRef, mapId: Long): Long =
         byScene.getOrPut(sceneRef.encode()) { nextChannel++ }
 
     override suspend fun find(sceneRef: SceneRef): Long? = byScene[sceneRef.encode()]
+
+    override suspend fun findScene(sceneRef: SceneRef): model.MmoSceneChannel? =
+        byScene[sceneRef.encode()]?.let { model.MmoSceneChannel(id = it, sceneRef = sceneRef.encode(), channelId = it, mapId = TestMap.ID) }
 
     override suspend fun close(sceneRef: SceneRef): Boolean = byScene.remove(sceneRef.encode()) != null
 
     override suspend fun list(): List<model.MmoSceneChannel> =
         byScene.entries.map { (ref, ch) -> model.MmoSceneChannel(id = ch, sceneRef = ref, channelId = ch) }
+}
+
+
+/**
+ * 测试地图：40x40 格、每格 2500 毫单位（100x100 世界单位），出生点 (50,50) 单位，
+ * 一块 8x4 格的障碍在出生点正右方（x 60..80，y 47.5..57.5 单位），一个 NPC。
+ */
+object TestMap {
+    const val ID: Long = 1L
+    val SPAWN = Vec2Fixed(50_000, 50_000)
+    val NPC = MmoNpc(id = 7, mapId = ID, name = "驿站老板", x = 20_000, y = 12_000, interactRange = 3_000, dialog = "客官打尖还是住店？")
+
+    fun grid(): String = buildString {
+        for (y in 0 until 40) for (x in 0 until 40) append(if (x in 24..31 && y in 19..22) '#' else '.')
+    }
+
+    fun sceneMap(): SceneMap = SceneMap(
+        MmoMap(id = ID, name = "test", widthCells = 40, heightCells = 40, cellSize = 2_500, grid = grid(), spawnX = SPAWN.x, spawnY = SPAWN.y),
+        listOf(NPC),
+    )
+}
+
+class FakeMapRepository : MapRepository(NoopLogger) {
+    private val map = TestMap.sceneMap()
+    override suspend fun find(mapId: Long): SceneMap? = if (mapId == TestMap.ID) map else null
+    override suspend fun invalidate(mapId: Long) = Unit
 }

@@ -1,6 +1,7 @@
 package init
 
 import com.netonstream.privchat.application.module.privchat.client.PrivchatServiceClient
+import logic.map.MapRepository
 import logic.scene.MmoRoleRepository
 import logic.scene.MmoSceneSessionRepository
 import logic.scene.PrivchatSceneRoomGateway
@@ -57,6 +58,9 @@ object MmorpgRuntimeBootstrap {
         val sequencer = SceneSequencer()
         ctx.bind(SceneSequencer::class, sequencer)
 
+        val maps = MapRepository(loggers.get("mmorpg.map"))
+        ctx.bind(MapRepository::class, maps)
+
         val scenes = SceneService(
             log = loggers.get("mmorpg.scene"),
             roles = roles,
@@ -64,6 +68,7 @@ object MmorpgRuntimeBootstrap {
             channels = channels,
             sequencer = sequencer,
             rooms = rooms,
+            maps = maps,
         )
         ctx.bind(SceneService::class, scenes)
 
@@ -75,7 +80,7 @@ object MmorpgRuntimeBootstrap {
         )
         log.info(
             "mmorpg.transfer_handler.registered service=${MmorpgTransferHandler.SERVICE_NAME} " +
-                "routes=[${MmorpgTransferHandler.ROUTE_SCENE_HEARTBEAT}, ${MmorpgTransferHandler.ROUTE_SCENE_MOVE}]",
+                "routes=[${MmorpgTransferHandler.ROUTE_SCENE_HEARTBEAT}, ${MmorpgTransferHandler.ROUTE_SCENE_MOVE}, ${MmorpgTransferHandler.ROUTE_SCENE_INTERACT}]",
         )
     }
 }

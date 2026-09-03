@@ -9,6 +9,7 @@ class SceneMovementTest {
     private fun session(start: Vec2Fixed, target: Vec2Fixed, startMs: Long, speed: Int) = MmoSceneSession(
         id = 1, roleId = 1, sceneRef = "l-1-1", channelId = 1,
         startX = start.x, startY = start.y, targetX = target.x, targetY = target.y,
+        pathPoints = SceneMovement.encodePath(if (start == target) emptyList() else listOf(target)),
         pathStartMs = startMs, speed = speed,
     )
 

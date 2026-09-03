@@ -3,6 +3,7 @@ package controller.admin.mmo
 import dto.AdminSceneOpenRequest
 import dto.AdminSceneRow
 import logic.MmoErrorCodes
+import logic.map.MapRepository
 import logic.scene.SceneChannelService
 import logic.scene.SceneRef
 import neton.core.annotations.Body
@@ -28,20 +29,23 @@ import neton.core.http.HttpException
 @Controller("/mmo/scenes")
 class MmoSceneAdminController(
     private val channels: SceneChannelService,
+    private val maps: MapRepository,
 ) {
 
     @Get("")
     @Permission("mmorpg:scene:read")
     suspend fun list(): List<AdminSceneRow> =
-        channels.list().map { AdminSceneRow(sceneRef = it.sceneRef, channelId = it.channelId, status = it.status) }
+        channels.list().map { AdminSceneRow(sceneRef = it.sceneRef, channelId = it.channelId.toString(), mapId = it.mapId, status = it.status) }
 
     @Post("")
     @Permission("mmorpg:scene:manage")
     suspend fun open(@Body request: AdminSceneOpenRequest): AdminSceneRow {
         val ref = SceneRef.parse(request.sceneRef)
             ?: throw HttpException(MmoErrorCodes.SCENE_GENERATION_MISMATCH, "malformed scene_ref: '${request.sceneRef}'")
-        val channelId = channels.provision(ref)
-        return AdminSceneRow(sceneRef = ref.encode(), channelId = channelId, status = 1)
+        maps.find(request.mapId)
+            ?: throw HttpException(neton.core.http.NetonErrorCode.INVALID_PARAMS, "map ${request.mapId} does not exist")
+        val channelId = channels.provision(ref, request.mapId)
+        return AdminSceneRow(sceneRef = ref.encode(), channelId = channelId.toString(), mapId = request.mapId, status = 1)
     }
 
     @Post("/{sceneRef}/close")
@@ -52,6 +56,6 @@ class MmoSceneAdminController(
         val channelId = channels.find(ref)
             ?: throw HttpException(MmoErrorCodes.SCENE_NOT_FOUND, "scene ${ref.encode()} is not open")
         channels.close(ref)
-        return AdminSceneRow(sceneRef = ref.encode(), channelId = channelId, status = 0)
+        return AdminSceneRow(sceneRef = ref.encode(), channelId = channelId.toString(), mapId = 0, status = 0)
     }
 }

@@ -3,6 +3,7 @@ package logic.transfer
 import kotlinx.coroutines.test.runTest
 import logic.MmoErrorCodes
 import logic.scene.FakeChannelService
+import logic.scene.FakeMapRepository
 import logic.scene.FakeRoleRepository
 import logic.scene.FakeRoomGateway
 import logic.scene.FakeSessionRepository
@@ -32,6 +33,7 @@ class MmorpgTransferHandlerTest {
         channels = channels,
         sequencer = SceneSequencer(),
         rooms = rooms,
+        maps = FakeMapRepository(),
         clock = { 12_345L },
     )
     private val handler = MmorpgTransferHandler(NoopLogger, scenes)

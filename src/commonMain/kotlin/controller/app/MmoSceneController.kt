@@ -9,7 +9,10 @@ import dto.MovementDto
 import dto.ScenePresentRole
 import dto.Vec2FixedDto
 import logic.scene.EntityState
-import logic.scene.SceneMap
+import logic.map.MapRepository
+import logic.map.SceneMap
+import dto.MapResponse
+import dto.NpcDto
 import dto.ScenePrivateSnapshotResponse
 import dto.ScenePublicSnapshotResponse
 import logic.scene.SceneOutcome
@@ -43,7 +46,21 @@ import neton.core.interfaces.Identity
 @Controller("/mmo/scene")
 class MmoSceneController(
     private val scenes: SceneService,
+    private val maps: MapRepository,
 ) {
+
+    /** 地图静态数据；客户端进场景后按 snapshot 的 `map_id` 拉一次。 */
+    @Get("/maps/{mapId}")
+    suspend fun map(@PathVariable mapId: Long): MapResponse {
+        val map = maps.find(mapId) ?: throw HttpException(logic.MmoErrorCodes.SCENE_NOT_FOUND, "map $mapId does not exist")
+        val d = map.data
+        return MapResponse(
+            mapId = d.id, name = d.name, widthCells = d.widthCells, heightCells = d.heightCells, cellSize = d.cellSize,
+            rows = (0 until d.heightCells).map { r -> d.grid.substring(r * d.widthCells, (r + 1) * d.widthCells) },
+            spawn = Vec2FixedDto(d.spawnX, d.spawnY),
+            navigationVersion = SceneMap.NAVIGATION_VERSION,
+        )
+    }
 
     @Post("/{sceneRef}/enter")
     suspend fun enter(
@@ -59,7 +76,7 @@ class MmoSceneController(
         ).orThrow()
         return SceneEnterResponse(
             sceneRef = result.sceneRef.encode(),
-            channelId = result.channelId,
+            channelId = result.channelId.toString(),
             sceneSessionId = result.sceneSessionId,
             sessionEpoch = result.sessionEpoch,
             ticket = result.ticket,
@@ -89,7 +106,9 @@ class MmoSceneController(
             publicSceneSeq = snapshot.publicSceneSeq,
             serverTimeMs = snapshot.serverTimeMs,
             navigationVersion = SceneMap.NAVIGATION_VERSION,
+            mapId = snapshot.mapId,
             roles = snapshot.roles.map { ScenePresentRole(it.roleId, it.roleName, it.state.toDto()) },
+            npcs = snapshot.npcs.map { NpcDto(it.npcId, it.name, it.kind, Vec2FixedDto(it.position.x, it.position.y), it.interactRange) },
         )
     }
 
@@ -109,7 +128,7 @@ class MmoSceneController(
             roleId = snapshot.roleId,
             sceneSessionId = snapshot.sceneSessionId,
             sessionEpoch = snapshot.sessionEpoch,
-            channelId = snapshot.channelId,
+            channelId = snapshot.channelId.toString(),
             lastSeenAt = snapshot.lastSeenAt,
             publicSceneSeq = snapshot.publicSceneSeq,
             self = snapshot.self.toDto(),

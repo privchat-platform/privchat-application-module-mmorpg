@@ -10,9 +10,9 @@ MMORPG 业务模块。
 >
 > 客户端侧的验收在 `privchat-godot-demo/scripts/auto_mmo_check.gd`(headless e2e,双角色全闭环)。
 >
-> 已实装:`mmorpg/scene/move`(MoveTo / Stop / CancelPath,幂等窗口 + 单调序号,平地
-> 直线路径;地图数据与寻路未接入,见 spec §12.9)。尚未实装:AOI、场景状态机、
-> 场景↔战斗 saga、队伍跟随。
+> 已实装:`mmorpg/scene/move`(MoveTo / Stop / CancelPath,幂等窗口 + 单调序号,格子 A*
+> 绕障碍)、地图数据 `mmo_map` 与 NPC `mmo_npc`、`mmorpg/scene/interact`(按权威位置判
+> 交互距离)。尚未实装:AOI、场景状态机、场景↔战斗 saga、队伍跟随。
 > 未实装的 route 返回 `21610 SceneCommandInvalid` 而**不是**静默成功。
 >
 > 编码当前全部走 JSON,收口在 `logic/codec/`。`protocol/generated/kotlin`

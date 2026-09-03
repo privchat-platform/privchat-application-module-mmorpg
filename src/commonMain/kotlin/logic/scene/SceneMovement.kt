@@ -8,64 +8,51 @@ import model.MmoSceneSession
  */
 data class Vec2Fixed(val x: Int, val y: Int)
 
-/**
- * 地图数据（边界、速度、导航版本）。
- *
- * 地图文件格式与寻路算法是 spec 的非目标（§9）；在真正的地图数据接入之前，
- * 这里给每个场景一块固定边界的平地：路径就是起点到终点的直线。接入导航网格时
- * 只换 [pathTo] 的实现，协议与调用方不动。
- */
-object SceneMap {
-    /** 100 x 100 世界单位。 */
-    const val WIDTH: Int = 100_000
-    const val HEIGHT: Int = 100_000
-
-    /** 5 世界单位每秒。 */
-    const val WALK_SPEED: Int = 5_000
-
-    /** 导航数据版本；换地图数据时递增，客户端据此拒绝新旧混算。 */
-    const val NAVIGATION_VERSION: Int = 1
-
-    /** 新进入场景的角色出生点。 */
-    val SPAWN: Vec2Fixed = Vec2Fixed(WIDTH / 2, HEIGHT / 2)
-
-    fun contains(p: Vec2Fixed): Boolean = p.x in 0..WIDTH && p.y in 0..HEIGHT
-
-    /** 权威路径：平地上就是直线。返回的点列**不含**起点。 */
-    fun pathTo(from: Vec2Fixed, to: Vec2Fixed): List<Vec2Fixed> = if (from == to) emptyList() else listOf(to)
-}
-
 object SceneMovement {
 
     /**
-     * 会话在 [nowMs] 时刻的权威位置：沿 start→target 以 speed 匀速，到达后停在 target。
-     * 中间量用 Long 避免溢出；除法向零取整（Kotlin 整数除法即如此）。
+     * 会话在 [nowMs] 时刻的权威位置：从 start 沿路径点列以 speed 匀速逐段走，
+     * 走完停在最后一点。中间量用 Long 避免溢出；除法向零取整。
+     * 客户端（GDScript）是同一套算法，所以两端算出同一个点。
      */
-    fun positionAt(session: MmoSceneSession, nowMs: Long): Vec2Fixed {
-        val start = Vec2Fixed(session.startX, session.startY)
-        val target = Vec2Fixed(session.targetX, session.targetY)
-        // 静止（速度 0）或原地路径：位置就是起点。速度 > 0 时 pathStartMs 一定 > 0。
-        if (session.speed <= 0 || start == target) return start
-        val elapsedMs = (nowMs - session.pathStartMs).coerceAtLeast(0)
-        val total = distance(start, target)
-        if (total == 0L) return target
-        // 已走距离（毫单位）= speed(毫单位/s) * elapsed(ms) / 1000
-        val travelled = session.speed.toLong() * elapsedMs / 1000
-        if (travelled >= total) return target
-        val dx = (target.x - start.x).toLong()
-        val dy = (target.y - start.y).toLong()
-        return Vec2Fixed(
-            (start.x + dx * travelled / total).toInt(),
-            (start.y + dy * travelled / total).toInt(),
-        )
+    fun positionAt(session: MmoSceneSession, nowMs: Long): Vec2Fixed =
+        positionOnPath(Vec2Fixed(session.startX, session.startY), decodePath(session.pathPoints), session.pathStartMs, session.speed, nowMs)
+
+    fun positionOnPath(start: Vec2Fixed, points: List<Vec2Fixed>, startMs: Long, speed: Int, nowMs: Long): Vec2Fixed {
+        if (speed <= 0 || points.isEmpty()) return start
+        var travelled = speed.toLong() * (nowMs - startMs).coerceAtLeast(0) / 1000
+        var from = start
+        for (to in points) {
+            val seg = distance(from, to)
+            if (travelled < seg) {
+                val dx = (to.x - from.x).toLong()
+                val dy = (to.y - from.y).toLong()
+                return Vec2Fixed((from.x + dx * travelled / seg).toInt(), (from.y + dy * travelled / seg).toInt())
+            }
+            travelled -= seg
+            from = to
+        }
+        return from
     }
 
-    /** 到达时刻；静止或已到达返回 [nowMs]。 */
+    /** 到达时刻；静止返回 pathStartMs。 */
     fun arrivalMs(session: MmoSceneSession): Long {
         if (session.speed <= 0) return session.pathStartMs
-        val total = distance(Vec2Fixed(session.startX, session.startY), Vec2Fixed(session.targetX, session.targetY))
+        var from = Vec2Fixed(session.startX, session.startY)
+        var total = 0L
+        for (to in decodePath(session.pathPoints)) { total += distance(from, to); from = to }
         return session.pathStartMs + total * 1000 / session.speed
     }
+
+    fun encodePath(points: List<Vec2Fixed>): String =
+        points.joinToString(",", "[", "]") { """{"x":${it.x},"y":${it.y}}""" }
+
+    fun decodePath(json: String): List<Vec2Fixed> {
+        if (json.isBlank() || json == "[]") return emptyList()
+        return PATH_POINT.findAll(json).map { Vec2Fixed(it.groupValues[1].toInt(), it.groupValues[2].toInt()) }.toList()
+    }
+
+    private val PATH_POINT = Regex(""""x":(-?\d+),"y":(-?\d+)""")
 
     /** 欧氏距离，向零取整。 */
     fun distance(a: Vec2Fixed, b: Vec2Fixed): Long {

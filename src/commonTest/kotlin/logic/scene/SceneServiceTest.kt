@@ -24,6 +24,7 @@ class SceneServiceTest {
         channels = channels,
         sequencer = sequencer,
         rooms = rooms,
+        maps = FakeMapRepository(),
         clock = { now },
     )
 

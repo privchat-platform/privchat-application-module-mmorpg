@@ -50,6 +50,7 @@ open class MmoSceneSessionRepository(
         channelId: Long,
         sessionEpoch: Long,
         nowMs: Long,
+        spawn: Vec2Fixed,
     ): MmoSceneSession {
         val created = MmoSceneSessionTable.insert(
             MmoSceneSession(
@@ -59,9 +60,9 @@ open class MmoSceneSessionRepository(
                 sessionEpoch = sessionEpoch,
                 status = 1,
                 lastSeenAt = nowMs,
-                // 出生点。位置由路径推算，静止 = 起点即终点、速度 0。
-                startX = SceneMap.SPAWN.x, startY = SceneMap.SPAWN.y,
-                targetX = SceneMap.SPAWN.x, targetY = SceneMap.SPAWN.y,
+                // 出生点来自地图数据。位置由路径推算，静止 = 起点即终点、速度 0。
+                startX = spawn.x, startY = spawn.y,
+                targetX = spawn.x, targetY = spawn.y,
             ),
         )
         log.info(

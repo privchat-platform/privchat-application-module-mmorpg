@@ -18,10 +18,15 @@ data class SceneEnterRequest(
     @SerialName("device_id") val deviceId: String,
 )
 
+/**
+ * 64 位 id 的线格式规则：可能超过 2^53 的 id（snowflake：`channel_id`）以**字符串**
+ * 传输——JavaScript / GDScript 的 JSON 数字是 double，超过 2^53 就静默丢精度。
+ * 会话、角色、路径这类自增计数 id 保持数字。
+ */
 @Serializable
 data class SceneEnterResponse(
     @SerialName("scene_ref") val sceneRef: String,
-    @SerialName("channel_id") val channelId: Long,
+    @SerialName("channel_id") val channelId: String,
     /** 回传给 heartbeat 的会话标识。 */
     @SerialName("scene_session_id") val sceneSessionId: Long,
     @SerialName("session_epoch") val sessionEpoch: Long,
@@ -72,12 +77,37 @@ data class ScenePresentRole(
 )
 
 @Serializable
+data class NpcDto(
+    @SerialName("npc_id") val npcId: Long,
+    val name: String,
+    val kind: String,
+    val position: Vec2FixedDto,
+    @SerialName("interact_range") val interactRange: Int,
+)
+
+@Serializable
 data class ScenePublicSnapshotResponse(
     @SerialName("scene_ref") val sceneRef: String,
     @SerialName("public_scene_seq") val publicSceneSeq: Long,
     @SerialName("server_time_ms") val serverTimeMs: Long,
     @SerialName("navigation_version") val navigationVersion: Int,
+    @SerialName("map_id") val mapId: Long,
     val roles: List<ScenePresentRole>,
+    val npcs: List<NpcDto>,
+)
+
+/** `GET /app/mmo/maps/{map_id}`：地图静态数据，客户端拉一次缓存。 */
+@Serializable
+data class MapResponse(
+    @SerialName("map_id") val mapId: Long,
+    val name: String,
+    @SerialName("width_cells") val widthCells: Int,
+    @SerialName("height_cells") val heightCells: Int,
+    @SerialName("cell_size") val cellSize: Int,
+    /** 每行一个字符串，'.' 可走 '#' 阻挡。 */
+    val rows: List<String>,
+    val spawn: Vec2FixedDto,
+    @SerialName("navigation_version") val navigationVersion: Int,
 )
 
 @Serializable
@@ -86,7 +116,7 @@ data class ScenePrivateSnapshotResponse(
     @SerialName("role_id") val roleId: Long,
     @SerialName("scene_session_id") val sceneSessionId: Long,
     @SerialName("session_epoch") val sessionEpoch: Long,
-    @SerialName("channel_id") val channelId: Long,
+    @SerialName("channel_id") val channelId: String,
     @SerialName("last_seen_at") val lastSeenAt: Long,
     @SerialName("public_scene_seq") val publicSceneSeq: Long,
     @SerialName("self_entity") val self: EntityStateDto,
@@ -108,12 +138,14 @@ data class RoleResponse(
 @Serializable
 data class AdminSceneOpenRequest(
     @SerialName("scene_ref") val sceneRef: String,
+    @SerialName("map_id") val mapId: Long = 1,
 )
 
 @Serializable
 data class AdminSceneRow(
     @SerialName("scene_ref") val sceneRef: String,
-    @SerialName("channel_id") val channelId: Long,
+    @SerialName("channel_id") val channelId: String,
+    @SerialName("map_id") val mapId: Long,
     /** 1 = 开放，0 = 已关闭。 */
     val status: Int,
 )

@@ -2,6 +2,7 @@ package logic.transfer
 
 import logic.MmoErrorCodes
 import logic.codec.SceneHeartbeatCodec
+import logic.codec.SceneInteractCodec
 import logic.codec.SceneMoveCodec
 import logic.scene.SceneOutcome
 import logic.scene.SceneService
@@ -33,6 +34,7 @@ class MmorpgTransferHandler(
         when (ctx.route) {
             ROUTE_SCENE_HEARTBEAT -> heartbeat(ctx)
             ROUTE_SCENE_MOVE -> move(ctx)
+            ROUTE_SCENE_INTERACT -> interact(ctx)
             else -> {
                 log.warn("mmo.transfer.unknown_route route=${ctx.route} channel_id=${ctx.channelId}")
                 PrivChatTransferResult.error(
@@ -96,8 +98,23 @@ class MmorpgTransferHandler(
         }
     }
 
+    private suspend fun interact(ctx: PrivChatTransferContext): PrivChatTransferResult {
+        val request = SceneInteractCodec.decodeRequest(ctx.body).getOrElse { failure ->
+            val code = if ((failure as? SceneInteractCodec.DecodeFailure)?.error is SceneInteractCodec.DecodeError.UnsupportedVersion)
+                MmoErrorCodes.SCENE_PROTOCOL_VERSION_UNSUPPORTED else MmoErrorCodes.SCENE_PAYLOAD_TOO_LARGE
+            return PrivChatTransferResult.error(code, failure.message ?: "malformed interact request")
+        }
+        return when (val outcome = scenes.interact(ctx.userId, ctx.channelId, request)) {
+            is SceneOutcome.Failure -> PrivChatTransferResult.error(outcome.code, outcome.message)
+            is SceneOutcome.Success -> PrivChatTransferResult.ok(SceneInteractCodec.encodeResponse(outcome.value))
+        }
+    }
+
     companion object {
         const val SERVICE_NAME: String = "mmorpg"
+
+        /** NPC 交互（上行）。 */
+        const val ROUTE_SCENE_INTERACT: String = "mmorpg/scene/interact"
 
         /** 移动意图（上行）。 */
         const val ROUTE_SCENE_MOVE: String = "mmorpg/scene/move"

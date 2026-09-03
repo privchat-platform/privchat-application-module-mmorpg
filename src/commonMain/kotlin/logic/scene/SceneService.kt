@@ -2,7 +2,10 @@ package logic.scene
 
 import kotlin.time.Clock
 import logic.MmoErrorCodes
+import logic.codec.SceneInteractCodec
 import logic.codec.SceneMoveCodec
+import logic.map.MapRepository
+import logic.map.SceneMap
 import logic.codec.ScenePublicEventCodec
 import logic.codec.encodeMovementStarted
 import model.MmoRole
@@ -31,6 +34,7 @@ class SceneService(
     private val channels: SceneChannelService,
     private val sequencer: SceneSequencer,
     private val rooms: SceneRoomGateway,
+    private val maps: MapRepository,
     private val clock: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val idempotency: SceneMoveIdempotency = SceneMoveIdempotency(),
 ) {
@@ -58,9 +62,14 @@ class SceneService(
         val role = requireOwnedRole(userId, roleId) ?: return notControllable(userId, roleId)
 
         // 场景由后台开好；玩家进不存在的场景是错误，不是建场景的时机。
-        val channelId = channels.find(sceneRef) ?: return SceneOutcome.Failure(
+        val scene = channels.findScene(sceneRef) ?: return SceneOutcome.Failure(
             MmoErrorCodes.SCENE_NOT_FOUND,
             "scene ${sceneRef.encode()} is not open; provision it from the admin console",
+        )
+        val channelId = scene.channelId
+        val map = maps.find(scene.mapId) ?: return SceneOutcome.Failure(
+            MmoErrorCodes.SCENE_NOT_FOUND,
+            "scene ${sceneRef.encode()} refers to map ${scene.mapId}, which does not exist",
         )
         val now = nowMs()
 
@@ -98,6 +107,7 @@ class SceneService(
             channelId = channelId,
             sessionEpoch = nextEpoch,
             nowMs = now,
+            spawn = map.spawn,
         )
 
         broadcastPresence(
@@ -253,27 +263,27 @@ class SceneService(
         val command = intent.command
             ?: return SceneOutcome.Failure(MmoErrorCodes.SCENE_COMMAND_INVALID, "move intent carries no command")
 
+        val map = mapOf(session) ?: return SceneOutcome.Failure(MmoErrorCodes.SCENE_NOT_FOUND, "scene ${session.sceneRef} has no map")
+
         // 权威起点永远是服务端此刻推算的位置，不是客户端自报的。
         val here = SceneMovement.positionAt(session, now)
-        val target: Vec2Fixed = when (command) {
-            is SceneMoveCodec.Command.MoveTo -> {
-                if (!SceneMap.contains(command.target)) {
-                    return SceneOutcome.Failure(MmoErrorCodes.SCENE_MOVE_TARGET_UNREACHABLE, "target ${command.target} is outside the map")
-                }
-                command.target
-            }
-            SceneMoveCodec.Command.Stop -> here
-            // 只取消指定的那条路径；不是当前路径就什么都不动（但序号照样推进）。
-            is SceneMoveCodec.Command.CancelPath -> if (command.pathId == session.pathId) here else Vec2Fixed(session.targetX, session.targetY)
+        val path: List<Vec2Fixed> = when (command) {
+            is SceneMoveCodec.Command.MoveTo -> map.pathTo(here, command.target)
+                ?: return SceneOutcome.Failure(MmoErrorCodes.SCENE_MOVE_TARGET_UNREACHABLE, "target ${command.target} is outside the map, blocked, or unreachable")
+            SceneMoveCodec.Command.Stop -> emptyList()
+            // 只取消指定的那条路径；不是当前路径就保持原路径（但序号照样推进）。
+            is SceneMoveCodec.Command.CancelPath ->
+                if (command.pathId == session.pathId) emptyList() else remainingPath(session, here, now)
         }
-        val path = SceneMap.pathTo(here, target)
         val moving = path.isNotEmpty()
+        val target = path.lastOrNull() ?: here
         val updated = session.copy(
             movementSeq = intent.movementSeq,
             entityVersion = session.entityVersion + 1,
             pathId = session.pathId + 1,
             startX = here.x, startY = here.y,
             targetX = target.x, targetY = target.y,
+            pathPoints = SceneMovement.encodePath(path),
             pathStartMs = now,
             speed = if (moving) SceneMap.WALK_SPEED else 0,
             lastSeenAt = now,
@@ -302,6 +312,53 @@ class SceneService(
         return SceneOutcome.Success(ack)
     }
 
+    // ---------------- NPC 交互 ----------------
+
+    /**
+     * 与 NPC 交互。在不在交互距离内由服务端按**权威位置**判（客户端说"我在旁边"不算数）。
+     * 响应只是对话与选项：玩法（任务、商店、进战斗）挂在 options 上，底座不解释它们。
+     */
+    suspend fun interact(userId: Long, channelId: Long, request: SceneInteractCodec.Request): SceneOutcome<SceneInteractCodec.Response> {
+        val session = sessions.findById(request.sceneSessionId)
+        if (session == null || session.status != 1 || session.channelId != channelId) {
+            return SceneOutcome.Failure(MmoErrorCodes.SCENE_SESSION_INVALID, "scene session ${request.sceneSessionId} is not valid on channel $channelId")
+        }
+        val role = roles.findById(session.roleId)
+        if (role == null || role.userId != userId || role.status != 1) return notControllable(userId, session.roleId)
+        val map = mapOf(session) ?: return SceneOutcome.Failure(MmoErrorCodes.SCENE_NOT_FOUND, "scene ${session.sceneRef} has no map")
+        val npc = map.npc(request.npcId)
+            ?: return SceneOutcome.Failure(MmoErrorCodes.SCENE_INTERACT_TARGET_NOT_FOUND, "npc ${request.npcId} is not on map ${map.id}")
+        val here = SceneMovement.positionAt(session, nowMs())
+        val gap = SceneMovement.distance(here, Vec2Fixed(npc.x, npc.y))
+        if (gap > npc.interactRange) {
+            return SceneOutcome.Failure(MmoErrorCodes.SCENE_INTERACT_OUT_OF_RANGE, "npc ${npc.id} is $gap away; interact range is ${npc.interactRange}")
+        }
+        return SceneOutcome.Success(
+            SceneInteractCodec.Response(npcId = npc.id, name = npc.name, kind = npc.kind, dialog = npc.dialog, options = listOf("leave")),
+        )
+    }
+
+    private suspend fun mapOf(session: MmoSceneSession): SceneMap? {
+        val ref = SceneRef.parse(session.sceneRef) ?: return null
+        val scene = channels.findScene(ref) ?: return null
+        return maps.find(scene.mapId)
+    }
+
+    /** 当前路径中还没走到的部分（CancelPath 指向别的路径时原路继续）。 */
+    private fun remainingPath(session: MmoSceneSession, here: Vec2Fixed, now: Long): List<Vec2Fixed> {
+        val points = SceneMovement.decodePath(session.pathPoints)
+        if (session.speed <= 0 || points.isEmpty()) return emptyList()
+        var travelled = session.speed.toLong() * (now - session.pathStartMs).coerceAtLeast(0) / 1000
+        var from = Vec2Fixed(session.startX, session.startY)
+        for ((i, to) in points.withIndex()) {
+            val seg = SceneMovement.distance(from, to)
+            if (travelled < seg) return points.drop(i)
+            travelled -= seg
+            from = to
+        }
+        return emptyList()
+    }
+
     // ---------------- 快照 ----------------
 
     /** 场景内的在场名单。任何能看到该场景的人都可以读。 */
@@ -312,18 +369,15 @@ class SceneService(
                 "malformed scene_ref: '$rawSceneRef'",
             )
         val encoded = sceneRef.encode()
-        channels.find(sceneRef) ?: return SceneOutcome.Failure(
-            MmoErrorCodes.SCENE_NOT_FOUND,
-            "scene $encoded has not been opened",
-        )
-
+        val scene = channels.findScene(sceneRef) ?: return SceneOutcome.Failure(MmoErrorCodes.SCENE_NOT_FOUND, "scene $encoded has not been opened")
+        val map = maps.find(scene.mapId) ?: return SceneOutcome.Failure(MmoErrorCodes.SCENE_NOT_FOUND, "scene $encoded refers to a missing map")
         val now = nowMs()
         val present = sessions.listActiveByScene(encoded)
         val named = present.mapNotNull { s ->
             roles.findById(s.roleId)?.let { PresentRole(it.id, it.name, entityStateOf(s, now)) }
         }
         return SceneOutcome.Success(
-            PublicSnapshot(sceneRef, sequencer.current(encoded), named, now),
+            PublicSnapshot(sceneRef, sequencer.current(encoded), named, now, map.id, map.npcs.map { NpcView(it.id, it.name, it.kind, Vec2Fixed(it.x, it.y), it.interactRange) }),
         )
     }
 
@@ -377,7 +431,7 @@ class SceneService(
             movement = if (s.speed > 0 && !arrived) MovementInProgress(
                 pathId = s.pathId,
                 start = Vec2Fixed(s.startX, s.startY),
-                pathPoints = listOf(Vec2Fixed(s.targetX, s.targetY)),
+                pathPoints = SceneMovement.decodePath(s.pathPoints),
                 startTimeMs = s.pathStartMs,
                 speed = s.speed,
             ) else null,
@@ -476,11 +530,15 @@ data class MovementInProgress(
 
 data class PresentRole(val roleId: Long, val roleName: String, val state: EntityState)
 
+data class NpcView(val npcId: Long, val name: String, val kind: String, val position: Vec2Fixed, val interactRange: Int)
+
 data class PublicSnapshot(
     val sceneRef: SceneRef,
     val publicSceneSeq: Long,
     val roles: List<PresentRole>,
     val serverTimeMs: Long,
+    val mapId: Long,
+    val npcs: List<NpcView>,
 )
 
 data class PrivateSnapshot(

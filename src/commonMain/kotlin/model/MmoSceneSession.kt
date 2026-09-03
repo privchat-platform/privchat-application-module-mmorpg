@@ -77,6 +77,13 @@ data class MmoSceneSession(
     /** 定点：1 = 1/1000 世界单位每秒；0 = 静止。 */
     val speed: Int = 0,
 
+    /**
+     * 当前路径的点列（JSON `[{"x":..,"y":..},...]`，不含起点）。寻路绕障碍时是多段；
+     * `target_x/y` 保留为最后一个点，便于查询。
+     */
+    @Column(name = "path_points")
+    val pathPoints: String = "[]",
+
     @CreatedAt
     val createdAt: Long? = null,
 

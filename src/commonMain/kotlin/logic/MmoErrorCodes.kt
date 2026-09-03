@@ -43,4 +43,10 @@ object MmoErrorCodes {
      * 没实装的 route。
      */
     const val SCENE_COMMAND_INVALID: Int = 21610
+
+    /** 交互目标（NPC）不在本场景的地图上。 */
+    const val SCENE_INTERACT_TARGET_NOT_FOUND: Int = 21611
+
+    /** 角色的权威位置离交互目标超过其交互距离。 */
+    const val SCENE_INTERACT_OUT_OF_RANGE: Int = 21612
 }
