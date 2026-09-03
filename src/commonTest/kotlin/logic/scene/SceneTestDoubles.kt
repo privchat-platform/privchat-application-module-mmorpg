@@ -138,13 +138,13 @@ class FakeRoomGateway(
         broadcasts += channelId to payload
     }
 
-    /** (channelId, userId, route, payload) */
+    /** (channelId, userId, route, payload, requestId) */
     val transfers = mutableListOf<List<Any>>()
     var transferFailure: Throwable? = null
 
     override suspend fun sendTransfer(channelId: Long, userId: Long, route: String, requestId: String, payload: String) {
         transferFailure?.let { throw it }
-        transfers += listOf(channelId, userId, route, payload)
+        transfers += listOf(channelId, userId, route, payload, requestId)
     }
 }
 

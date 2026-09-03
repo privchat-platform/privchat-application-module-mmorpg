@@ -100,6 +100,8 @@ class BattleServiceTest {
         assertEquals(listOf("phase_changed"), payloadKeys(publicEvents()))
         assertEquals(listOf("slots_offered"), payloadKeys(privateEvents()))
         assertEquals(listOf(entry.channelId, 1L, BattleService.ROUTE_BATTLE_EVENT), rooms.transfers.single().take(3))
+        // server 对定向 transfer 的 request_id 有熵要求:必须是 UUID v4。
+        assertTrue(Regex("[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}").matches(rooms.transfers.single()[4] as String))
         // 续接拿到同一份。
         assertEquals(entry, ok(battles.transition(1, entry.transitionId)))
         fail(battles.transition(2, entry.transitionId)).let { assertEquals(MmoErrorCodes.SCENE_ENTITY_NOT_CONTROLLABLE, it.code) }

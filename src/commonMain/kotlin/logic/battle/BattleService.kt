@@ -436,7 +436,9 @@ class BattleService(
                     rooms.broadcast(battle.channelId, payload)
                 } else {
                     val userId = roles.findById(recipient)?.userId ?: error("recipient role $recipient is gone")
-                    rooms.sendTransfer(battle.channelId, userId, ROUTE_BATTLE_EVENT, "be-${events.first().id}", payload)
+                    // server 要求 request_id 有足够熵(UUID v4 或 ≥16 随机字节);每次尝试一个新 id,
+                    // 重投的去重由客户端按 stream_seq 完成,不靠 server。
+                    rooms.sendTransfer(battle.channelId, userId, ROUTE_BATTLE_EVENT, uuidV4(), payload)
                 }
             }
             sent.onSuccess { for (e in events) repo.markPublished(e, now) }
@@ -459,6 +461,15 @@ class BattleService(
     )
 
     private fun nowMs(): Long = clock()
+
+    /** RFC 4122 v4 文本形式,来自 [kotlin.random.Random] 的 16 字节。 */
+    private fun uuidV4(): String {
+        val b = kotlin.random.Random.nextBytes(16)
+        b[6] = ((b[6].toInt() and 0x0F) or 0x40).toByte()
+        b[8] = ((b[8].toInt() and 0x3F) or 0x80).toByte()
+        val hex = b.joinToString("") { ((it.toInt() and 0xFF) or 0x100).toString(16).substring(1) }
+        return "${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}"
+    }
 
     companion object {
         const val TRANSITION_PENDING: String = "PENDING"
