@@ -36,7 +36,7 @@ class MmorpgTransferHandlerTest {
         maps = FakeMapRepository(),
         clock = { 12_345L },
     )
-    private val handler = MmorpgTransferHandler(NoopLogger, scenes)
+    private val handler = MmorpgTransferHandler(NoopLogger, scenes, battles = logic.battle.BattleTestKit.service(roles, sessions, rooms, channels))
 
     private fun ctx(
         route: String,

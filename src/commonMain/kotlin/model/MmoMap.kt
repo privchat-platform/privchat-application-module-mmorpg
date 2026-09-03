@@ -37,6 +37,8 @@ data class MmoNpc(
     val y: Int,
     @Column(name = "interact_range") val interactRange: Int = 3000,
     val dialog: String = "",
+    /** 遭遇配置（JSON 数组，空 = 不可战）；结构见 logic.battle.BattleRules.parseEncounter。 */
+    val encounter: String = "",
     val status: Int = 1,
     @CreatedAt val createdAt: Long? = null,
     @UpdatedAt val updatedAt: Long? = null,

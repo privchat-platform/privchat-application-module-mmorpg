@@ -89,6 +89,13 @@ open class MmoSceneSessionRepository(
         MmoSceneSessionTable.update(session)
     }
 
+    /** 场景 ↔ 战斗切换的状态迁移（§15.2）。返回写回后的行。 */
+    open suspend fun updateState(session: MmoSceneSession, state: String): MmoSceneSession {
+        val updated = session.copy(state = state)
+        MmoSceneSessionTable.update(updated)
+        return updated
+    }
+
     /** heartbeat 续期。只动 `last_seen_at`，不改状态。 */
     open suspend fun touch(session: MmoSceneSession, nowMs: Long) {
         MmoSceneSessionTable.update(session.copy(lastSeenAt = nowMs))

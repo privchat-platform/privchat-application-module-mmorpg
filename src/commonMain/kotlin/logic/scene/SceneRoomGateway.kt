@@ -3,6 +3,7 @@ package logic.scene
 import com.netonstream.privchat.application.module.privchat.client.PrivchatServiceClient
 import com.netonstream.privchat.application.module.privchat.client.dto.CreateRoomRequest
 import com.netonstream.privchat.application.module.privchat.client.dto.IssueRoomTicketRequest
+import com.netonstream.privchat.application.module.privchat.client.dto.TransferSendRequest
 
 /**
  * 场景需要 privchat-server 提供的三件事，仅此三件。
@@ -26,6 +27,12 @@ interface SceneRoomGateway {
 
     /** 向 Room 广播一条公共事件。 */
     suspend fun broadcast(channelId: Long, payload: String)
+
+    /**
+     * 向 channel 上的一个用户定向投递（PRIVATE 事件）。`payload` 是 UTF-8 文本；
+     * base64 是传输层的事，在这里包掉。
+     */
+    suspend fun sendTransfer(channelId: Long, userId: Long, route: String, requestId: String, payload: String)
 
     data class Ticket(val ticket: String, val exp: Long)
 }
@@ -57,5 +64,18 @@ class PrivchatSceneRoomGateway(
 
     override suspend fun broadcast(channelId: Long, payload: String) {
         client.broadcastRoom(channelId, payload)
+    }
+
+    @OptIn(kotlin.io.encoding.ExperimentalEncodingApi::class)
+    override suspend fun sendTransfer(channelId: Long, userId: Long, route: String, requestId: String, payload: String) {
+        client.sendTransfer(
+            TransferSendRequest(
+                requestId = requestId,
+                channelId = channelId,
+                targetUserId = userId,
+                route = route,
+                body = kotlin.io.encoding.Base64.encode(payload.encodeToByteArray()),
+            ),
+        )
     }
 }

@@ -77,6 +77,23 @@ dispatch 路由;`GET /admin/mmo/scenes` 列表;`POST /admin/mmo/scenes/{ref}/clo
 registry 里记录过两次因此产生的真实冲突(20900 / 20920),代价是两个业务对同一个
 数字有不同理解,而客户端只看得到数字。
 
+## 战斗(v1,MMO_BATTLE_PROTOCOL_SPEC §15)
+
+`logic/battle/`:`BattleRules`(纯函数规则引擎:先手、占位伤害公式、改选、胜负、SplitMix64
+权威 RNG)、`BattleService`(状态机 + 幂等矩阵 + 事务内 outbox)、`BattleRoundScheduler`
+(回合截止轮询)。线格式是 `protocol/schemas/battle_*.fbs` 的 JSON 镜像(`logic/codec/BattleCodec`),
+语义规则与判定顺序见 `protocol/schemas/VALIDATION.md` 的 V-B*。
+
+- 发起走 HTTP(`POST /app/mmo/scene/{ref}/roles/{role}/battles`),要建 Room、绑路由、签 ticket;
+  任一步失败补偿回 `ACTIVE`,`mmo_battle_transition` 记 FAILED。
+- 指令走 Transfer `mmorpg/battle/command`,认输走 `mmorpg/battle/instant`;PUBLIC 事件广播到战斗 Room
+  (topic `mmorpg.battle.public`),PRIVATE 事件经 `/api/service/transfer/send` 定向投递(route
+  `mmorpg/battle/event`)。Godot 端的 SDK 目前不把服务端推来的 transfer 交给 GDScript,demo 用
+  private snapshot 取 `open_slots`——协议允许,snapshot 本来就是恢复语义的真源。
+- 会话状态 `mmo_scene_session.state`:战斗中不能移动、不能再发起、不能重新 enter(21613);
+  结算后先重新 enter 场景(epoch+1)再退订战斗 Room,`CLOSED` 时服务端把会话放回 `ACTIVE`。
+- 奖励:v1 只落 `mmo_reward_settlement(PENDING)`,不发 `RewardGranted`(没有经济 / 道具模块)。
+
 ## 与 privchat 各层的边界
 
 `privchat-sdk` / `privchat-sdk-c-api` / `privchat-godot` / `privchat-godot-demo`

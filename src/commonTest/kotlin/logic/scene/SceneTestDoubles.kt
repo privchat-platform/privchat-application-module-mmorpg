@@ -95,6 +95,12 @@ class FakeSessionRepository : MmoSceneSessionRepository(NoopLogger) {
     override suspend fun updateMovement(session: MmoSceneSession) {
         rows[session.id] = session
     }
+
+    override suspend fun updateState(session: MmoSceneSession, state: String): MmoSceneSession {
+        val updated = session.copy(state = state)
+        rows[session.id] = updated
+        return updated
+    }
 }
 
 /** 记录所有对 server 的调用，供断言"广播确实发了/没发"。 */
@@ -131,6 +137,15 @@ class FakeRoomGateway(
         broadcastFailure?.let { throw it }
         broadcasts += channelId to payload
     }
+
+    /** (channelId, userId, route, payload) */
+    val transfers = mutableListOf<List<Any>>()
+    var transferFailure: Throwable? = null
+
+    override suspend fun sendTransfer(channelId: Long, userId: Long, route: String, requestId: String, payload: String) {
+        transferFailure?.let { throw it }
+        transfers += listOf(channelId, userId, route, payload)
+    }
 }
 
 /**
@@ -157,6 +172,12 @@ class FakeChannelService(
         byScene[sceneRef.encode()]?.let { model.MmoSceneChannel(id = it, sceneRef = sceneRef.encode(), channelId = it, mapId = TestMap.ID) }
 
     override suspend fun close(sceneRef: SceneRef): Boolean = byScene.remove(sceneRef.encode()) != null
+    var battleChannelFailure: Throwable? = null
+    val battleChannels = mutableMapOf<Long, Long>()
+    override suspend fun provisionBattleChannel(battleId: Long): Long {
+        battleChannelFailure?.let { throw it }
+        return battleChannels.getOrPut(battleId) { 9000L + battleId }
+    }
 
     override suspend fun list(): List<model.MmoSceneChannel> =
         byScene.entries.map { (ref, ch) -> model.MmoSceneChannel(id = ch, sceneRef = ref, channelId = ch) }
@@ -171,6 +192,11 @@ object TestMap {
     const val ID: Long = 1L
     val SPAWN = Vec2Fixed(50_000, 50_000)
     val NPC = MmoNpc(id = 7, mapId = ID, name = "驿站老板", x = 20_000, y = 12_000, interactRange = 3_000, dialog = "客官打尖还是住店？")
+    /** 可战 NPC：一只弱怪，让"打到全灭"在几回合内确定发生。 */
+    val MONSTER_NPC = MmoNpc(
+        id = 8, mapId = ID, name = "山贼", kind = "monster", x = 60_000, y = 30_000, interactRange = 3_000, dialog = "留下买路财！",
+        encounter = """[{"name":"山贼","hp":30,"mp":0,"atk":5,"def":0,"speed":1}]""",
+    )
 
     fun grid(): String = buildString {
         for (y in 0 until 40) for (x in 0 until 40) append(if (x in 24..31 && y in 19..22) '#' else '.')
@@ -178,7 +204,7 @@ object TestMap {
 
     fun sceneMap(): SceneMap = SceneMap(
         MmoMap(id = ID, name = "test", widthCells = 40, heightCells = 40, cellSize = 2_500, grid = grid(), spawnX = SPAWN.x, spawnY = SPAWN.y),
-        listOf(NPC),
+        listOf(NPC, MONSTER_NPC),
     )
 }
 

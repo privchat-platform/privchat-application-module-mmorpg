@@ -88,6 +88,14 @@ class SceneService(
         // 旧会话的 epoch 决定新 epoch：递增而非从 1 开始，否则重进后旧 heartbeat
         // 会和新会话撞上同一个 epoch，失效判定就失灵了。
         val previous = sessions.findActiveByRole(roleId)
+        // 战斗占用中不能靠重新 enter 脱离战斗；结算后（BATTLE_EXITING）重新 enter 才是
+        // 退出战斗的正路（MMO_BATTLE_PROTOCOL_SPEC §15.2）。
+        if (previous != null && SceneSessionState.isBattleBound(previous.state)) {
+            return SceneOutcome.Failure(
+                MmoErrorCodes.SCENE_STATE_NOT_ALLOWED,
+                "role $roleId is in battle (session ${previous.id} state ${previous.state}); finish it first",
+            )
+        }
         var nextEpoch = 1L
         if (previous != null) {
             sessions.close(previous, now)
@@ -248,6 +256,9 @@ class SceneService(
         }
         val now = nowMs()
 
+        if (session.state != SceneSessionState.ACTIVE) {
+            return SceneOutcome.Failure(MmoErrorCodes.SCENE_STATE_NOT_ALLOWED, "session ${session.id} is ${session.state}; movement is not allowed")
+        }
         when (val hit = idempotency.lookup(session.id, intent, now)) {
             is SceneMoveIdempotency.Lookup.Replay -> return SceneOutcome.Success(hit.ack)
             SceneMoveIdempotency.Lookup.Conflict -> return SceneOutcome.Failure(
@@ -334,7 +345,11 @@ class SceneService(
             return SceneOutcome.Failure(MmoErrorCodes.SCENE_INTERACT_OUT_OF_RANGE, "npc ${npc.id} is $gap away; interact range is ${npc.interactRange}")
         }
         return SceneOutcome.Success(
-            SceneInteractCodec.Response(npcId = npc.id, name = npc.name, kind = npc.kind, dialog = npc.dialog, options = listOf("leave")),
+            SceneInteractCodec.Response(
+                npcId = npc.id, name = npc.name, kind = npc.kind, dialog = npc.dialog,
+                // "battle" 出现即表示该 NPC 可战（§15.1）；真正发起走 HTTP，并再次按权威位置校验距离。
+                options = if (npc.encounter.isNotBlank()) listOf(OPTION_BATTLE, OPTION_LEAVE) else listOf(OPTION_LEAVE),
+            ),
         )
     }
 
@@ -487,6 +502,9 @@ class SceneService(
          * ——这是个封闭枚举，不是给业务侧打标记用的自由字段。
          */
         const val TICKET_SCOPE: String = "subscribe"
+
+        const val OPTION_BATTLE: String = "battle"
+        const val OPTION_LEAVE: String = "leave"
     }
 }
 

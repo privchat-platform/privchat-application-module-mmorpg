@@ -1,6 +1,10 @@
 package init
 
 import com.netonstream.privchat.application.module.privchat.client.PrivchatServiceClient
+import logic.battle.BattleRepository
+import logic.battle.BattleRoundScheduler
+import logic.battle.BattleService
+import logic.battle.DbBattleTransactor
 import logic.map.MapRepository
 import logic.scene.MmoRoleRepository
 import logic.scene.MmoSceneSessionRepository
@@ -72,15 +76,32 @@ object MmorpgRuntimeBootstrap {
         )
         ctx.bind(SceneService::class, scenes)
 
+        val battles = BattleService(
+            log = loggers.get("mmorpg.battle"),
+            roles = roles,
+            sessions = sessions,
+            channels = channels,
+            maps = maps,
+            rooms = rooms,
+            repo = BattleRepository(loggers.get("mmorpg.battle.repo")),
+            tx = DbBattleTransactor(),
+        )
+        ctx.bind(BattleService::class, battles)
+        ctx.lifecycle.register(
+            "mmorpg.battle-round-scheduler",
+            BattleRoundScheduler(loggers.get("mmorpg.battle.scheduler"), battles),
+        )
         ctx.get(PrivChatTransferServiceRegistry::class).register(
             MmorpgTransferHandler(
                 log = loggers.get("mmorpg.transfer"),
                 scenes = scenes,
+                battles = battles,
             ),
         )
         log.info(
             "mmorpg.transfer_handler.registered service=${MmorpgTransferHandler.SERVICE_NAME} " +
-                "routes=[${MmorpgTransferHandler.ROUTE_SCENE_HEARTBEAT}, ${MmorpgTransferHandler.ROUTE_SCENE_MOVE}, ${MmorpgTransferHandler.ROUTE_SCENE_INTERACT}]",
+                "routes=[${MmorpgTransferHandler.ROUTE_SCENE_HEARTBEAT}, ${MmorpgTransferHandler.ROUTE_SCENE_MOVE}, " +
+                "${MmorpgTransferHandler.ROUTE_SCENE_INTERACT}, ${MmorpgTransferHandler.ROUTE_BATTLE_COMMAND}, ${MmorpgTransferHandler.ROUTE_BATTLE_INSTANT}]",
         )
     }
 }

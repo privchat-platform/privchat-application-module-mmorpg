@@ -1,6 +1,8 @@
 package logic.transfer
 
 import logic.MmoErrorCodes
+import logic.battle.BattleService
+import logic.codec.BattleCodec
 import logic.codec.SceneHeartbeatCodec
 import logic.codec.SceneInteractCodec
 import logic.codec.SceneMoveCodec
@@ -26,6 +28,7 @@ import transfer.PrivChatTransferResult
 class MmorpgTransferHandler(
     private val log: Logger,
     private val scenes: SceneService,
+    private val battles: BattleService,
 ) : PrivChatTransferHandler {
 
     override val serviceName: String = SERVICE_NAME
@@ -35,6 +38,8 @@ class MmorpgTransferHandler(
             ROUTE_SCENE_HEARTBEAT -> heartbeat(ctx)
             ROUTE_SCENE_MOVE -> move(ctx)
             ROUTE_SCENE_INTERACT -> interact(ctx)
+            ROUTE_BATTLE_COMMAND -> battleCommand(ctx)
+            ROUTE_BATTLE_INSTANT -> battleInstant(ctx)
             else -> {
                 log.warn("mmo.transfer.unknown_route route=${ctx.route} channel_id=${ctx.channelId}")
                 PrivChatTransferResult.error(
@@ -110,8 +115,36 @@ class MmorpgTransferHandler(
         }
     }
 
+    private suspend fun battleCommand(ctx: PrivChatTransferContext): PrivChatTransferResult {
+        val env = BattleCodec.decodeCommand(ctx.body).getOrElse { failure ->
+            val code = if ((failure as? BattleCodec.DecodeFailure)?.error is BattleCodec.DecodeError.UnsupportedVersion)
+                MmoErrorCodes.BATTLE_PROTOCOL_VERSION_UNSUPPORTED else MmoErrorCodes.BATTLE_PAYLOAD_TOO_LARGE
+            return PrivChatTransferResult.error(code, failure.message ?: "malformed battle command")
+        }
+        return when (val outcome = battles.submit(ctx.userId, ctx.channelId, env)) {
+            is SceneOutcome.Failure -> PrivChatTransferResult.error(outcome.code, outcome.message)
+            is SceneOutcome.Success -> PrivChatTransferResult.ok(BattleCodec.encodeAck(outcome.value).toString().encodeToByteArray())
+        }
+    }
+
+    private suspend fun battleInstant(ctx: PrivChatTransferContext): PrivChatTransferResult {
+        val req = BattleCodec.decodeInstant(ctx.body).getOrElse { failure ->
+            val code = if ((failure as? BattleCodec.DecodeFailure)?.error is BattleCodec.DecodeError.UnsupportedVersion)
+                MmoErrorCodes.BATTLE_PROTOCOL_VERSION_UNSUPPORTED else MmoErrorCodes.BATTLE_PAYLOAD_TOO_LARGE
+            return PrivChatTransferResult.error(code, failure.message ?: "malformed instant request")
+        }
+        return when (val outcome = battles.instant(ctx.userId, ctx.channelId, req)) {
+            is SceneOutcome.Failure -> PrivChatTransferResult.error(outcome.code, outcome.message)
+            is SceneOutcome.Success -> PrivChatTransferResult.ok(outcome.value.toString().encodeToByteArray())
+        }
+    }
+
     companion object {
         const val SERVICE_NAME: String = "mmorpg"
+        /** 回合指令（上行，MMO_BATTLE_PROTOCOL_SPEC §15.1）。 */
+        const val ROUTE_BATTLE_COMMAND: String = "mmorpg/battle/command"
+        /** 即时权威操作：认输（上行）。 */
+        const val ROUTE_BATTLE_INSTANT: String = "mmorpg/battle/instant"
 
         /** NPC 交互（上行）。 */
         const val ROUTE_SCENE_INTERACT: String = "mmorpg/scene/interact"

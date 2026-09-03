@@ -48,6 +48,11 @@ data class MmoSceneSession(
 
     @Column(name = "last_seen_at")
     val lastSeenAt: Long = 0,
+    /**
+     * 会话状态（MMO_BATTLE_PROTOCOL_SPEC §15.2）：`ACTIVE | BATTLE_ENTERING | IN_BATTLE |
+     * BATTLE_EXITING`。非 ACTIVE 时不能移动、不能再发起战斗（21613）。
+     */
+    val state: String = "ACTIVE",
 
     // ---- 移动的权威状态（V002，spec §4）----
     // 存"当前路径"而不是"当前坐标"：坐标每帧都在变，路径只在意图被受理时变。

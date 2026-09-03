@@ -49,4 +49,36 @@ object MmoErrorCodes {
 
     /** 角色的权威位置离交互目标超过其交互距离。 */
     const val SCENE_INTERACT_OUT_OF_RANGE: Int = 21612
+
+    /** 会话状态不允许该操作（战斗中不能移动、不能再发起战斗）。 */
+    const val SCENE_STATE_NOT_ALLOWED: Int = 21613
+
+    // ---- 战斗（MMO_BATTLE_PROTOCOL_SPEC §9，段位 21400-21499）----
+
+    /** `battle_id` 不存在或已 CLOSED。 */
+    const val BATTLE_NOT_FOUND: Int = 21400
+    /** 当前不在 `COMMAND`。 */
+    const val BATTLE_PHASE_MISMATCH: Int = 21401
+    const val BATTLE_ROUND_MISMATCH: Int = 21402
+    const val BATTLE_PHASE_VERSION_STALE: Int = 21403
+    /** `role_id` 无权控制该 `actor_id`。 */
+    const val BATTLE_ACTOR_NOT_CONTROLLABLE: Int = 21404
+    /** `actor_id` 不属于该 `battle_id`。 */
+    const val BATTLE_ACTOR_NOT_IN_BATTLE: Int = 21405
+    /** 该 actor 当前不可行动（死亡）。 */
+    const val BATTLE_ACTOR_CANNOT_ACT: Int = 21406
+    /** 指令本身非法（目标非法 / 载荷缺失）。 */
+    const val BATTLE_COMMAND_REJECTED: Int = 21407
+    const val BATTLE_PROTOCOL_VERSION_UNSUPPORTED: Int = 21408
+    /** 即时权威操作的乐观锁冲突。 */
+    const val BATTLE_STATE_VERSION_CONFLICT: Int = 21409
+    const val BATTLE_PAYLOAD_TOO_LARGE: Int = 21410
+    /** 同 `request_id` 但 payload 不同。 */
+    const val BATTLE_IDEMPOTENCY_KEY_REUSE: Int = 21411
+    /** 同 `action_seq` 但 payload / `request_id` 不同。 */
+    const val BATTLE_ACTION_SEQ_REUSE: Int = 21412
+    const val BATTLE_SLOT_NOT_FOUND: Int = 21413
+    const val BATTLE_SLOT_NOT_OWNED: Int = 21414
+    const val BATTLE_COMMAND_NOT_ALLOWED_IN_SLOT: Int = 21415
+    const val BATTLE_ACTION_SEQ_STALE: Int = 21416
 }

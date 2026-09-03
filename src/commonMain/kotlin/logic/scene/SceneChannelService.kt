@@ -38,6 +38,28 @@ open class SceneChannelService(
     private val businessServiceRepository: PrivchatBusinessServiceRepository,
 ) {
 
+    /**
+     * 为一场战斗开 Room 并登记 dispatch 路由（`business_ref_type = "mmo_battle"`，
+     * MMO_BATTLE_PROTOCOL_SPEC §15.3）。战斗是一次性的，不进 `mmo_scene_channel`
+     * 索引：`mmo_battle.channel_id` 就是它的正向索引。
+     */
+    open suspend fun provisionBattleChannel(battleId: Long): Long {
+        val service = businessServiceRepository.findByName(SERVICE_NAME)
+            ?: error("privchat_business_service(name='$SERVICE_NAME') is missing; battle channels cannot be routed")
+        val channelId = rooms.createRoom("mmo_battle:$battleId")
+        require(channelId > 0) { "createRoom returned a non-positive channel_id: $channelId" }
+        businessChannelResolver.bind(
+            channelId = channelId,
+            serviceId = service.id,
+            businessRefId = battleId,
+            businessRefType = BATTLE_REF_TYPE,
+            dispatchTransferEnabled = 1,
+            dispatchMessageEnabled = 0,
+        )
+        log.info("mmo.battle.channel.provisioned battle_id=$battleId channel_id=$channelId")
+        return channelId
+    }
+
     /** 后台开场景：已存在则直接返回；否则申请 Room、写索引、登记路由。幂等。 */
     open suspend fun provision(sceneRef: SceneRef, mapId: Long = 1): Long {
         val encoded = sceneRef.encode()
@@ -121,5 +143,6 @@ open class SceneChannelService(
 
         /** 写进 `privchat_business_channel.business_ref_type`，便于运维反查。 */
         const val BUSINESS_REF_TYPE: String = "mmo_scene"
+        const val BATTLE_REF_TYPE: String = "mmo_battle"
     }
 }
