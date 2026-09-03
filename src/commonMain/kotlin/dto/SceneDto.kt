@@ -102,3 +102,18 @@ data class RoleResponse(
     @SerialName("role_id") val roleId: Long,
     val name: String,
 )
+
+// ---- 后台 ----
+
+@Serializable
+data class AdminSceneOpenRequest(
+    @SerialName("scene_ref") val sceneRef: String,
+)
+
+@Serializable
+data class AdminSceneRow(
+    @SerialName("scene_ref") val sceneRef: String,
+    @SerialName("channel_id") val channelId: Long,
+    /** 1 = 开放，0 = 已关闭。 */
+    val status: Int,
+)

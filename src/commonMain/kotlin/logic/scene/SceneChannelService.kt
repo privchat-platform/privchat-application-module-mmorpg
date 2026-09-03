@@ -8,13 +8,20 @@ import transfer.PrivchatBusinessChannelResolver
 import transfer.PrivchatBusinessServiceRepository
 
 /**
- * `SceneRef` → 真实 Room `channel_id` 的解析与provision。
+ * `SceneRef` → 真实 Room `channel_id` 的解析与 provision。
+ *
+ * ### 谁来建：后台，不是玩家
+ *
+ * 场景（世界频道、地图分线、副本模板）是**运营内容**，由后台通过 admin API
+ * [provision] 开出来；玩家进入时只查（[find]），场景不存在就 `21600`，不会
+ * 顺手替运营建一个。让客户端的 enter 触发建 Room，等于任何持有 token 的人
+ * 都能凭空造出无限个场景。
  *
  * ### 幂等是硬要求
  *
- * 同一个场景必须始终解析到同一个 channel。如果重启或并发进入各建了一个 Room，
- * 同场景的玩家会被分到两个广播域——两边都收得到自己的事件、收不到对方的，
- * 表现出来是"玩家互相看不见"，而每一层日志看上去都正常。
+ * 同一个场景必须始终解析到同一个 channel。如果重复 provision 或并发建了两个
+ * Room，同场景的玩家会被分到两个广播域——两边都收得到自己的事件、收不到对方
+ * 的，表现出来是"玩家互相看不见"，而每一层日志看上去都正常。
  *
  * ### 双写的边界
  *
@@ -31,8 +38,8 @@ open class SceneChannelService(
     private val businessServiceRepository: PrivchatBusinessServiceRepository,
 ) {
 
-    /** 已存在则直接返回；否则申请 Room、写索引、登记路由。 */
-    open suspend fun getOrCreate(sceneRef: SceneRef): Long {
+    /** 后台开场景：已存在则直接返回；否则申请 Room、写索引、登记路由。幂等。 */
+    open suspend fun provision(sceneRef: SceneRef): Long {
         val encoded = sceneRef.encode()
         findChannel(encoded)?.let { return it.channelId }
 
@@ -77,8 +84,25 @@ open class SceneChannelService(
         return channelId
     }
 
-    /** 只查不建。channel 尚未 provision 时返回 `null`。 */
+    /** 只查不建。channel 尚未 provision 或已关闭时返回 `null`。 */
     open suspend fun find(sceneRef: SceneRef): Long? = findChannel(sceneRef.encode())?.channelId
+
+    /** 全部已开场景（含已关闭的，供后台列表）。 */
+    open suspend fun list(): List<MmoSceneChannel> =
+        MmoSceneChannelTable.query { orderBy(MmoSceneChannel::id.asc()) }.list()
+
+    /**
+     * 关闭场景：索引置 0，dispatch 路由解绑。Room 本身是 server 侧内存对象，
+     * 无人订阅即消亡。已关闭的场景 enter / snapshot 都是 `21600`。
+     * 返回 false 表示本来就没有这个场景。
+     */
+    open suspend fun close(sceneRef: SceneRef): Boolean {
+        val row = findChannel(sceneRef.encode()) ?: return false
+        MmoSceneChannelTable.update(row.copy(status = 0))
+        businessChannelResolver.unbind(row.channelId)
+        log.info("mmo.scene.channel.closed scene_ref=${sceneRef.encode()} channel_id=${row.channelId}")
+        return true
+    }
 
     private suspend fun findChannel(encoded: String): MmoSceneChannel? =
         MmoSceneChannelTable.oneWhere {

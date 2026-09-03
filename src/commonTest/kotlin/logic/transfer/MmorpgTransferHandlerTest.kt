@@ -8,6 +8,7 @@ import logic.scene.FakeRoomGateway
 import logic.scene.FakeSessionRepository
 import logic.scene.NoopLogger
 import logic.scene.SceneOutcome
+import logic.scene.SceneRef
 import logic.scene.SceneSequencer
 import logic.scene.SceneService
 import kotlin.test.Test
@@ -21,11 +22,14 @@ class MmorpgTransferHandlerTest {
     private val roles = FakeRoleRepository()
     private val sessions = FakeSessionRepository()
     private val rooms = FakeRoomGateway()
+    private val channels = FakeChannelService(rooms).also {
+        kotlinx.coroutines.runBlocking { it.provision(SceneRef.parse("l-10023-7")!!) }
+    }
     private val scenes = SceneService(
         log = NoopLogger,
         roles = roles,
         sessions = sessions,
-        channels = FakeChannelService(rooms),
+        channels = channels,
         sequencer = SceneSequencer(),
         rooms = rooms,
         clock = { 12_345L },

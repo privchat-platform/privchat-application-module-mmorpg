@@ -57,7 +57,11 @@ class SceneService(
             )
         val role = requireOwnedRole(userId, roleId) ?: return notControllable(userId, roleId)
 
-        val channelId = channels.getOrCreate(sceneRef)
+        // 场景由后台开好；玩家进不存在的场景是错误，不是建场景的时机。
+        val channelId = channels.find(sceneRef) ?: return SceneOutcome.Failure(
+            MmoErrorCodes.SCENE_NOT_FOUND,
+            "scene ${sceneRef.encode()} is not open; provision it from the admin console",
+        )
         val now = nowMs()
 
         // ticket 先签。它只依赖 channel/user/device，不依赖会话状态，所以可以放在

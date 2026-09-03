@@ -17,11 +17,18 @@ class SceneMoveTest {
     private val sessions = FakeSessionRepository()
     private val rooms = FakeRoomGateway()
     private var now = 10_000L
+    private val channels = FakeChannelService(rooms)
     private val service = SceneService(
-        log = NoopLogger, roles = roles, sessions = sessions, channels = FakeChannelService(rooms),
+        log = NoopLogger, roles = roles, sessions = sessions, channels = channels,
         sequencer = SceneSequencer(), rooms = rooms, clock = { now },
     )
     private val scene = "l-10023-7"
+
+    init {
+        kotlinx.coroutines.runBlocking { (service.let { channelsOf() }).provision(SceneRef.parse(scene)!!) }
+    }
+
+    private fun channelsOf(): FakeChannelService = channels
 
     private fun <T> ok(o: SceneOutcome<T>): T = assertIs<SceneOutcome.Success<T>>(o).value
     private fun fail(o: SceneOutcome<*>): SceneOutcome.Failure = assertIs<SceneOutcome.Failure>(o)

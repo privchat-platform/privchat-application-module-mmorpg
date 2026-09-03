@@ -29,6 +29,11 @@ class SceneServiceTest {
 
     private val scene = "l-10023-7"
 
+    init {
+        // 场景由后台开好；测试模拟这一步。
+        kotlinx.coroutines.runBlocking { channels.provision(SceneRef.parse(scene)!!); channels.provision(SceneRef.parse("l-10024-1")!!) }
+    }
+
     private fun <T> ok(o: SceneOutcome<T>): T = assertIs<SceneOutcome.Success<T>>(o).value
     private fun fail(o: SceneOutcome<*>): SceneOutcome.Failure = assertIs<SceneOutcome.Failure>(o)
 
@@ -58,6 +63,16 @@ class SceneServiceTest {
         // 用户 2 拿着用户 1 的 role_id 进场景——只是改一个请求体字段的事。
         val f = fail(service.enter(userId = 2, roleId = alice.id, rawSceneRef = scene, deviceId = "d"))
         assertEquals(MmoErrorCodes.SCENE_ENTITY_NOT_CONTROLLABLE, f.code)
+        assertTrue(sessions.rows.isEmpty())
+    }
+
+    @Test
+    fun enterRefusesAnUnprovisionedSceneInsteadOfCreatingIt() = runTest {
+        val alice = roles.seed(userId = 1, name = "Alice")
+        // 任何持有 token 的人都能 enter；让 enter 建 Room 等于让玩家凭空造场景。
+        val f = fail(service.enter(1, alice.id, "l-999-1", "d1"))
+        assertEquals(MmoErrorCodes.SCENE_NOT_FOUND, f.code)
+        assertTrue(rooms.created.isEmpty(), "enter must not create rooms")
         assertTrue(sessions.rows.isEmpty())
     }
 

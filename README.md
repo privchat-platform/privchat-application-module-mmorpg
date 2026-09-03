@@ -35,6 +35,12 @@ src/commonMain/kotlin/
   logic/transfer/  Transfer handler
 ```
 
+## 场景由后台开
+
+`POST /admin/mmo/scenes {"scene_ref":"l-10023-7"}`(幂等)开出一个场景的 Room 与
+dispatch 路由;`GET /admin/mmo/scenes` 列表;`POST /admin/mmo/scenes/{ref}/close` 关闭。
+玩家 enter 只查:场景没开就 `21600`,不会替运营建一个。
+
 ## 服务注册
 
 `privchat_business_service.name = "mmorpg"`(id 9200)。这一行由

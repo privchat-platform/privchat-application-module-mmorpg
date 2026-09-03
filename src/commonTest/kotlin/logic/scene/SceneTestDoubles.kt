@@ -143,8 +143,13 @@ class FakeChannelService(
     private val byScene = mutableMapOf<String, Long>()
     private var nextChannel = 5000L
 
-    override suspend fun getOrCreate(sceneRef: SceneRef): Long =
+    override suspend fun provision(sceneRef: SceneRef): Long =
         byScene.getOrPut(sceneRef.encode()) { nextChannel++ }
 
     override suspend fun find(sceneRef: SceneRef): Long? = byScene[sceneRef.encode()]
+
+    override suspend fun close(sceneRef: SceneRef): Boolean = byScene.remove(sceneRef.encode()) != null
+
+    override suspend fun list(): List<model.MmoSceneChannel> =
+        byScene.entries.map { (ref, ch) -> model.MmoSceneChannel(id = ch, sceneRef = ref, channelId = ch) }
 }
