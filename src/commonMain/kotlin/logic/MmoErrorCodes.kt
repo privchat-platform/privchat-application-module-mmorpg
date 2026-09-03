@@ -17,6 +17,15 @@ object MmoErrorCodes {
     /** `SceneRef` 无法解析，或代际过期（分线已重建、ID 被复用）。 */
     const val SCENE_GENERATION_MISMATCH: Int = 21602
 
+    /** 目标点越界 / 不在可行走区。 */
+    const val SCENE_MOVE_TARGET_UNREACHABLE: Int = 21603
+
+    /** `movement_seq` 不大于该 session 已受理的最大值（乱序迟到）。 */
+    const val SCENE_MOVEMENT_SEQ_STALE: Int = 21605
+
+    /** 同 `request_id` 但规范化载荷不同。 */
+    const val SCENE_IDEMPOTENCY_KEY_REUSE: Int = 21606
+
     /** 请求者无权控制该实体（角色不属于该账号）。 */
     const val SCENE_ENTITY_NOT_CONTROLLABLE: Int = 21607
 

@@ -75,7 +75,7 @@ object MmorpgRuntimeBootstrap {
         )
         log.info(
             "mmorpg.transfer_handler.registered service=${MmorpgTransferHandler.SERVICE_NAME} " +
-                "routes=[${MmorpgTransferHandler.ROUTE_SCENE_HEARTBEAT}]",
+                "routes=[${MmorpgTransferHandler.ROUTE_SCENE_HEARTBEAT}, ${MmorpgTransferHandler.ROUTE_SCENE_MOVE}]",
         )
     }
 }

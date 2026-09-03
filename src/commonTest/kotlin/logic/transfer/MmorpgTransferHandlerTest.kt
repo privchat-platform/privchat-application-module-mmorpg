@@ -90,14 +90,33 @@ class MmorpgTransferHandlerTest {
 
     @Test
     fun rejectsAnUnknownRouteInsteadOfSwallowingIt() = runTest {
-        // mmorpg/scene/move 还没实装。前缀匹配会把它误吞进 heartbeat 分支，
-        // 客户端会以为移动成功了。
-        //
-        // 用 21610 而不是 21600：客户端收到 21600 会去重建场景，但场景是好的，
-        // 只是这个动作本端还不会。
-        val result = handler.handle(ctx("mmorpg/scene/move", "{}"))
+        // 前缀匹配会把未实装的 route 误吞进已有分支，客户端会以为动作成功了。
+        // 用 21610 而不是 21600：客户端收到 21600 会去重建场景，但场景是好的。
+        val result = handler.handle(ctx("mmorpg/scene/teleport", "{}"))
         assertEquals(MmoErrorCodes.SCENE_COMMAND_INVALID, result.code)
-        assertTrue("mmorpg/scene/move" in result.message)
+        assertTrue("mmorpg/scene/teleport" in result.message)
+    }
+
+    @Test
+    fun acceptsAMoveAndReturnsTheAck() = runTest {
+        val (sessionId, channelId) = enterAlice()
+        val body = """{"protocol_version":1,"scene_session_id":$sessionId,"request_id":"m-1","movement_seq":1,""" +
+            """"command":{"move_to":{"target_position":{"x":1000,"y":2000}}},"client_time_ms":1}"""
+        val result = handler.handle(ctx(MmorpgTransferHandler.ROUTE_SCENE_MOVE, body, channelId = channelId))
+        assertEquals(0, result.code)
+        val payload = result.data.decodeToString()
+        assertTrue(""""accepted_movement_seq":1""" in payload, payload)
+        assertTrue(""""replayed":false""" in payload, payload)
+    }
+
+    @Test
+    fun aRejectedMoveCarriesTheCodeOutsideAndNoData() = runTest {
+        val (sessionId, channelId) = enterAlice()
+        val body = """{"protocol_version":1,"scene_session_id":$sessionId,"request_id":"m-1","movement_seq":1,""" +
+            """"command":{"move_to":{"target_position":{"x":-5,"y":0}}}}"""
+        val result = handler.handle(ctx(MmorpgTransferHandler.ROUTE_SCENE_MOVE, body, channelId = channelId))
+        assertEquals(MmoErrorCodes.SCENE_MOVE_TARGET_UNREACHABLE, result.code)
+        assertTrue(result.data.isEmpty(), "rejections carry no data (spec 9.1)")
     }
 
     @Test

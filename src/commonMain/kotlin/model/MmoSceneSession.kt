@@ -49,6 +49,34 @@ data class MmoSceneSession(
     @Column(name = "last_seen_at")
     val lastSeenAt: Long = 0,
 
+    // ---- 移动的权威状态（V002，spec §4）----
+    // 存"当前路径"而不是"当前坐标"：坐标每帧都在变，路径只在意图被受理时变。
+    // 任意时刻的位置由 start/target/path_start_ms/speed 按定点数学推算，见
+    // logic.scene.SceneMovement。
+
+    /** 该 session 已受理的最大 movement_seq；Stop / Cancel 同样占用新值。 */
+    @Column(name = "movement_seq")
+    val movementSeq: Long = 0,
+
+    /** 每次权威状态变化递增，下行事件靠它按版本覆盖而非连续重放。 */
+    @Column(name = "entity_version")
+    val entityVersion: Long = 0,
+
+    @Column(name = "path_id")
+    val pathId: Long = 0,
+
+    @Column(name = "start_x") val startX: Int = 0,
+    @Column(name = "start_y") val startY: Int = 0,
+    @Column(name = "target_x") val targetX: Int = 0,
+    @Column(name = "target_y") val targetY: Int = 0,
+
+    /** 路径开始的服务端时刻（Unix ms）；0 = 从未移动，位置即 start。 */
+    @Column(name = "path_start_ms")
+    val pathStartMs: Long = 0,
+
+    /** 定点：1 = 1/1000 世界单位每秒；0 = 静止。 */
+    val speed: Int = 0,
+
     @CreatedAt
     val createdAt: Long? = null,
 

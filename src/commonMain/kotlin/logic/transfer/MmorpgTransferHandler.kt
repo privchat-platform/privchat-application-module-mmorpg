@@ -2,6 +2,7 @@ package logic.transfer
 
 import logic.MmoErrorCodes
 import logic.codec.SceneHeartbeatCodec
+import logic.codec.SceneMoveCodec
 import logic.scene.SceneOutcome
 import logic.scene.SceneService
 import neton.logging.Logger
@@ -31,6 +32,7 @@ class MmorpgTransferHandler(
     override suspend fun handle(ctx: PrivChatTransferContext): PrivChatTransferResult =
         when (ctx.route) {
             ROUTE_SCENE_HEARTBEAT -> heartbeat(ctx)
+            ROUTE_SCENE_MOVE -> move(ctx)
             else -> {
                 log.warn("mmo.transfer.unknown_route route=${ctx.route} channel_id=${ctx.channelId}")
                 PrivChatTransferResult.error(
@@ -77,8 +79,28 @@ class MmorpgTransferHandler(
         }
     }
 
+    private suspend fun move(ctx: PrivChatTransferContext): PrivChatTransferResult {
+        val intent = SceneMoveCodec.decodeIntent(ctx.body).getOrElse { failure ->
+            val error = (failure as? SceneMoveCodec.DecodeFailure)?.error
+            val code = when (error) {
+                is SceneMoveCodec.DecodeError.UnsupportedVersion -> MmoErrorCodes.SCENE_PROTOCOL_VERSION_UNSUPPORTED
+                else -> MmoErrorCodes.SCENE_PAYLOAD_TOO_LARGE
+            }
+            log.warn("mmo.transfer.move.decode_failed channel_id=${ctx.channelId} user_id=${ctx.userId} reason=${failure.message}")
+            return PrivChatTransferResult.error(code, failure.message ?: "malformed move intent")
+        }
+        return when (val outcome = scenes.move(userId = ctx.userId, channelId = ctx.channelId, intent = intent)) {
+            // 拒绝一律走外层 code、data 为空（spec §9.1）。
+            is SceneOutcome.Failure -> PrivChatTransferResult.error(outcome.code, outcome.message)
+            is SceneOutcome.Success -> PrivChatTransferResult.ok(SceneMoveCodec.encodeAck(outcome.value))
+        }
+    }
+
     companion object {
         const val SERVICE_NAME: String = "mmorpg"
+
+        /** 移动意图（上行）。 */
+        const val ROUTE_SCENE_MOVE: String = "mmorpg/scene/move"
 
         /**
          * 场景心跳（上行）。route 恰好三段 `mmorpg/<域>/<动作>`

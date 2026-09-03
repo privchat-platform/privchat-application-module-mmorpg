@@ -43,15 +43,40 @@ data class SceneLeaveResponse(
 )
 
 @Serializable
+data class Vec2FixedDto(val x: Int, val y: Int)
+
+@Serializable
+data class MovementDto(
+    @SerialName("path_id") val pathId: Long,
+    @SerialName("authoritative_start_position") val start: Vec2FixedDto,
+    @SerialName("path_points") val pathPoints: List<Vec2FixedDto>,
+    @SerialName("start_time_ms") val startTimeMs: Long,
+    val speed: Int,
+)
+
+/** `EntityState` 的 JSON 镜像 + 在途路径。 */
+@Serializable
+data class EntityStateDto(
+    @SerialName("entity_id") val entityId: Long,
+    @SerialName("entity_version") val entityVersion: Long,
+    @SerialName("movement_seq") val movementSeq: Long,
+    val position: Vec2FixedDto,
+    val movement: MovementDto? = null,
+)
+
+@Serializable
 data class ScenePresentRole(
     @SerialName("role_id") val roleId: Long,
     @SerialName("role_name") val roleName: String,
+    val state: EntityStateDto,
 )
 
 @Serializable
 data class ScenePublicSnapshotResponse(
     @SerialName("scene_ref") val sceneRef: String,
     @SerialName("public_scene_seq") val publicSceneSeq: Long,
+    @SerialName("server_time_ms") val serverTimeMs: Long,
+    @SerialName("navigation_version") val navigationVersion: Int,
     val roles: List<ScenePresentRole>,
 )
 
@@ -64,6 +89,7 @@ data class ScenePrivateSnapshotResponse(
     @SerialName("channel_id") val channelId: Long,
     @SerialName("last_seen_at") val lastSeenAt: Long,
     @SerialName("public_scene_seq") val publicSceneSeq: Long,
+    @SerialName("self_entity") val self: EntityStateDto,
 )
 
 @Serializable

@@ -4,7 +4,12 @@ import dto.SceneEnterRequest
 import dto.SceneEnterResponse
 import dto.SceneLeaveRequest
 import dto.SceneLeaveResponse
+import dto.EntityStateDto
+import dto.MovementDto
 import dto.ScenePresentRole
+import dto.Vec2FixedDto
+import logic.scene.EntityState
+import logic.scene.SceneMap
 import dto.ScenePrivateSnapshotResponse
 import dto.ScenePublicSnapshotResponse
 import logic.scene.SceneOutcome
@@ -82,7 +87,9 @@ class MmoSceneController(
         return ScenePublicSnapshotResponse(
             sceneRef = snapshot.sceneRef.encode(),
             publicSceneSeq = snapshot.publicSceneSeq,
-            roles = snapshot.roles.map { ScenePresentRole(it.roleId, it.roleName) },
+            serverTimeMs = snapshot.serverTimeMs,
+            navigationVersion = SceneMap.NAVIGATION_VERSION,
+            roles = snapshot.roles.map { ScenePresentRole(it.roleId, it.roleName, it.state.toDto()) },
         )
     }
 
@@ -105,6 +112,7 @@ class MmoSceneController(
             channelId = snapshot.channelId,
             lastSeenAt = snapshot.lastSeenAt,
             publicSceneSeq = snapshot.publicSceneSeq,
+            self = snapshot.self.toDto(),
         )
     }
 }
@@ -119,3 +127,19 @@ private fun <T> SceneOutcome<T>.orThrow(): T = when (this) {
     is SceneOutcome.Success -> value
     is SceneOutcome.Failure -> throw HttpException(code, message)
 }
+
+private fun EntityState.toDto() = EntityStateDto(
+    entityId = entityId,
+    entityVersion = entityVersion,
+    movementSeq = movementSeq,
+    position = Vec2FixedDto(position.x, position.y),
+    movement = movement?.let {
+        MovementDto(
+            pathId = it.pathId,
+            start = Vec2FixedDto(it.start.x, it.start.y),
+            pathPoints = it.pathPoints.map { p -> Vec2FixedDto(p.x, p.y) },
+            startTimeMs = it.startTimeMs,
+            speed = it.speed,
+        )
+    },
+)

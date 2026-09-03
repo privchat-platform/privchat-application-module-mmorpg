@@ -69,6 +69,8 @@ class FakeSessionRepository : MmoSceneSessionRepository(NoopLogger) {
             sessionEpoch = sessionEpoch,
             status = 1,
             lastSeenAt = nowMs,
+            startX = SceneMap.SPAWN.x, startY = SceneMap.SPAWN.y,
+            targetX = SceneMap.SPAWN.x, targetY = SceneMap.SPAWN.y,
         )
         rows[s.id] = s
         return s
@@ -83,6 +85,10 @@ class FakeSessionRepository : MmoSceneSessionRepository(NoopLogger) {
 
     override suspend fun touch(session: MmoSceneSession, nowMs: Long) {
         rows[session.id] = session.copy(lastSeenAt = nowMs)
+    }
+
+    override suspend fun updateMovement(session: MmoSceneSession) {
+        rows[session.id] = session
     }
 }
 

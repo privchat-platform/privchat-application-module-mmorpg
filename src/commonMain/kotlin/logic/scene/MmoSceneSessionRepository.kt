@@ -59,6 +59,9 @@ open class MmoSceneSessionRepository(
                 sessionEpoch = sessionEpoch,
                 status = 1,
                 lastSeenAt = nowMs,
+                // 出生点。位置由路径推算，静止 = 起点即终点、速度 0。
+                startX = SceneMap.SPAWN.x, startY = SceneMap.SPAWN.y,
+                targetX = SceneMap.SPAWN.x, targetY = SceneMap.SPAWN.y,
             ),
         )
         log.info(
@@ -78,6 +81,11 @@ open class MmoSceneSessionRepository(
                 "scene_ref=${session.sceneRef}",
         )
         return closed
+    }
+
+    /** 写回一段新的权威移动（路径、序号、版本）。 */
+    open suspend fun updateMovement(session: MmoSceneSession) {
+        MmoSceneSessionTable.update(session)
     }
 
     /** heartbeat 续期。只动 `last_seen_at`，不改状态。 */

@@ -2,7 +2,9 @@ package logic.scene
 
 import kotlin.time.Clock
 import logic.MmoErrorCodes
+import logic.codec.SceneMoveCodec
 import logic.codec.ScenePublicEventCodec
+import logic.codec.encodeMovementStarted
 import model.MmoRole
 import model.MmoSceneSession
 import neton.logging.Logger
@@ -30,6 +32,7 @@ class SceneService(
     private val sequencer: SceneSequencer,
     private val rooms: SceneRoomGateway,
     private val clock: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+    private val idempotency: SceneMoveIdempotency = SceneMoveIdempotency(),
 ) {
 
     // ---------------- 进入场景 ----------------
@@ -205,6 +208,96 @@ class SceneService(
         )
     }
 
+    // ---------------- 移动 ----------------
+
+    /**
+     * 移动意图（spec §4.1、幂等矩阵 §4.1.1、校验规则 V-I1..V-I5）。
+     *
+     * 顺序是契约的一部分：
+     *   身份链（同心跳）→ 幂等窗口 → 序号 → command 语义 → 边界 → 受理。
+     * 幂等命中必须早于序号比较，否则合法重试会被当成乱序迟到拒掉。
+     *
+     * 受理即快速 ACK；`MovementStarted` 作为公共事件异步广播（§4.1）。
+     */
+    suspend fun move(
+        userId: Long,
+        channelId: Long,
+        intent: SceneMoveCodec.Intent,
+    ): SceneOutcome<SceneMoveCodec.Ack> {
+        val session = sessions.findById(intent.sceneSessionId)
+        if (session == null || session.status != 1 || session.channelId != channelId) {
+            return SceneOutcome.Failure(MmoErrorCodes.SCENE_SESSION_INVALID, "scene session ${intent.sceneSessionId} is not valid on channel $channelId")
+        }
+        val role = roles.findById(session.roleId)
+        if (role == null || role.userId != userId || role.status != 1) {
+            return notControllable(userId, session.roleId)
+        }
+        val now = nowMs()
+
+        when (val hit = idempotency.lookup(session.id, intent, now)) {
+            is SceneMoveIdempotency.Lookup.Replay -> return SceneOutcome.Success(hit.ack)
+            SceneMoveIdempotency.Lookup.Conflict -> return SceneOutcome.Failure(
+                MmoErrorCodes.SCENE_IDEMPOTENCY_KEY_REUSE, "request_id '${intent.requestId}' was already used with a different intent",
+            )
+            SceneMoveIdempotency.Lookup.Miss -> Unit
+        }
+        if (intent.movementSeq <= session.movementSeq) {
+            return SceneOutcome.Failure(
+                MmoErrorCodes.SCENE_MOVEMENT_SEQ_STALE, "movement_seq ${intent.movementSeq} is not above accepted ${session.movementSeq}",
+            )
+        }
+        val command = intent.command
+            ?: return SceneOutcome.Failure(MmoErrorCodes.SCENE_COMMAND_INVALID, "move intent carries no command")
+
+        // 权威起点永远是服务端此刻推算的位置，不是客户端自报的。
+        val here = SceneMovement.positionAt(session, now)
+        val target: Vec2Fixed = when (command) {
+            is SceneMoveCodec.Command.MoveTo -> {
+                if (!SceneMap.contains(command.target)) {
+                    return SceneOutcome.Failure(MmoErrorCodes.SCENE_MOVE_TARGET_UNREACHABLE, "target ${command.target} is outside the map")
+                }
+                command.target
+            }
+            SceneMoveCodec.Command.Stop -> here
+            // 只取消指定的那条路径；不是当前路径就什么都不动（但序号照样推进）。
+            is SceneMoveCodec.Command.CancelPath -> if (command.pathId == session.pathId) here else Vec2Fixed(session.targetX, session.targetY)
+        }
+        val path = SceneMap.pathTo(here, target)
+        val moving = path.isNotEmpty()
+        val updated = session.copy(
+            movementSeq = intent.movementSeq,
+            entityVersion = session.entityVersion + 1,
+            pathId = session.pathId + 1,
+            startX = here.x, startY = here.y,
+            targetX = target.x, targetY = target.y,
+            pathStartMs = now,
+            speed = if (moving) SceneMap.WALK_SPEED else 0,
+            lastSeenAt = now,
+        )
+        sessions.updateMovement(updated)
+        val ack = SceneMoveCodec.Ack(
+            sceneSessionId = session.id,
+            requestId = intent.requestId,
+            acceptedMovementSeq = intent.movementSeq,
+            entityVersion = updated.entityVersion,
+            replayed = false,
+            pathId = updated.pathId,
+        )
+        idempotency.remember(session.id, intent, ack, now)
+
+        val seq = sequencer.next(session.sceneRef)
+        val payload = ScenePublicEventCodec.encodeMovementStarted(
+            sceneRef = session.sceneRef, seq = seq, entityId = role.id,
+            movementSeq = updated.movementSeq, entityVersion = updated.entityVersion, pathId = updated.pathId,
+            start = here, pathPoints = path, startTimeMs = now, speed = updated.speed,
+            navigationVersion = SceneMap.NAVIGATION_VERSION, serverTimeMs = now,
+        )
+        runCatching { rooms.broadcast(session.channelId, payload) }.onFailure {
+            log.warn("mmo.scene.movement.broadcast_failed scene_ref=${session.sceneRef} role_id=${role.id} err=${it.message}")
+        }
+        return SceneOutcome.Success(ack)
+    }
+
     // ---------------- 快照 ----------------
 
     /** 场景内的在场名单。任何能看到该场景的人都可以读。 */
@@ -220,12 +313,13 @@ class SceneService(
             "scene $encoded has not been opened",
         )
 
+        val now = nowMs()
         val present = sessions.listActiveByScene(encoded)
         val named = present.mapNotNull { s ->
-            roles.findById(s.roleId)?.let { PresentRole(it.id, it.name) }
+            roles.findById(s.roleId)?.let { PresentRole(it.id, it.name, entityStateOf(s, now)) }
         }
         return SceneOutcome.Success(
-            PublicSnapshot(sceneRef, sequencer.current(encoded), named),
+            PublicSnapshot(sceneRef, sequencer.current(encoded), named, now),
         )
     }
 
@@ -261,11 +355,30 @@ class SceneService(
                 channelId = session.channelId,
                 lastSeenAt = session.lastSeenAt,
                 publicSceneSeq = sequencer.current(session.sceneRef),
+                self = entityStateOf(session, nowMs()),
             ),
         )
     }
 
     // ---------------- 内部 ----------------
+
+    private fun entityStateOf(s: MmoSceneSession, now: Long): EntityState {
+        val arrived = SceneMovement.arrivalMs(s) <= now
+        return EntityState(
+            entityId = s.roleId,
+            entityVersion = s.entityVersion,
+            movementSeq = s.movementSeq,
+            position = SceneMovement.positionAt(s, now),
+            // 在途路径随快照下发，迟到的订阅者据此本地插值而不必等下一次事件。
+            movement = if (s.speed > 0 && !arrived) MovementInProgress(
+                pathId = s.pathId,
+                start = Vec2Fixed(s.startX, s.startY),
+                pathPoints = listOf(Vec2Fixed(s.targetX, s.targetY)),
+                startTimeMs = s.pathStartMs,
+                speed = s.speed,
+            ) else null,
+        )
+    }
 
     private suspend fun requireOwnedRole(userId: Long, roleId: Long): MmoRole? =
         roles.findById(roleId)?.takeIf { it.userId == userId && it.status == 1 }
@@ -340,12 +453,30 @@ data class HeartbeatResult(
     val publicSceneSeq: Long,
 )
 
-data class PresentRole(val roleId: Long, val roleName: String)
+/** `EntityState`（`scene_common.fbs`）的领域形态，加上在途路径。 */
+data class EntityState(
+    val entityId: Long,
+    val entityVersion: Long,
+    val movementSeq: Long,
+    val position: Vec2Fixed,
+    val movement: MovementInProgress?,
+)
+
+data class MovementInProgress(
+    val pathId: Long,
+    val start: Vec2Fixed,
+    val pathPoints: List<Vec2Fixed>,
+    val startTimeMs: Long,
+    val speed: Int,
+)
+
+data class PresentRole(val roleId: Long, val roleName: String, val state: EntityState)
 
 data class PublicSnapshot(
     val sceneRef: SceneRef,
     val publicSceneSeq: Long,
     val roles: List<PresentRole>,
+    val serverTimeMs: Long,
 )
 
 data class PrivateSnapshot(
@@ -356,4 +487,5 @@ data class PrivateSnapshot(
     val channelId: Long,
     val lastSeenAt: Long,
     val publicSceneSeq: Long,
+    val self: EntityState,
 )

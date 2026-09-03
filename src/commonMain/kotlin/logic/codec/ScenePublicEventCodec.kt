@@ -24,6 +24,9 @@ object ScenePublicEventCodec {
     /** 角色离开场景。 */
     const val EVENT_ROLE_LEFT: String = "scene.role_left"
 
+    /** 一段权威移动开始（`MovementStarted`）；客户端沿同一路径本地插值。 */
+    const val EVENT_MOVEMENT_STARTED: String = "scene.movement_started"
+
     fun encodePresence(
         event: String,
         sceneRef: String,
