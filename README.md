@@ -8,6 +8,8 @@ MMORPG 业务模块。
 > → Transfer 心跳 → 收到他人进入/离开事件。契约与"哪些没实装"的清单见
 > privchat-docs 的 `MMO_WORLD_SCENE_SPEC` §12。
 >
+> 客户端侧的验收在 `privchat-godot-demo/scripts/auto_mmo_check.gd`(headless e2e,双角色全闭环)。
+>
 > 尚未实装:`mmorpg/scene/move`(需要 `movement_seq`、权威寻路与幂等,缺任一
 > 项都会做成之后必须推翻的接口)、AOI、场景状态机、场景↔战斗 saga、队伍跟随。
 > 未实装的 route 返回 `21610 SceneCommandInvalid` 而**不是**静默成功。
