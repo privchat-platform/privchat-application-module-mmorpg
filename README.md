@@ -88,8 +88,8 @@ registry 里记录过两次因此产生的真实冲突(20900 / 20920),代价是�
   任一步失败补偿回 `ACTIVE`,`mmo_battle_transition` 记 FAILED。
 - 指令走 Transfer `mmorpg/battle/command`,认输走 `mmorpg/battle/instant`;PUBLIC 事件广播到战斗 Room
   (topic `mmorpg.battle.public`),PRIVATE 事件经 `/api/service/transfer/send` 定向投递(route
-  `mmorpg/battle/event`)。Godot 端的 SDK 目前不把服务端推来的 transfer 交给 GDScript,demo 用
-  private snapshot 取 `open_slots`——协议允许,snapshot 本来就是恢复语义的真源。
+  `mmorpg/battle/event`),客户端经 SDK `TransferReceived` → Godot `transfer_received` 事件驱动地
+  收到 `slots_offered` / `command_accepted`;snapshot 只做漏收后的恢复。
 - 会话状态 `mmo_scene_session.state`:战斗中不能移动、不能再发起、不能重新 enter(21613);
   结算后先重新 enter 场景(epoch+1)再退订战斗 Room,`CLOSED` 时服务端把会话放回 `ACTIVE`。
 - 奖励:v1 只落 `mmo_reward_settlement(PENDING)`,不发 `RewardGranted`(没有经济 / 道具模块)。
