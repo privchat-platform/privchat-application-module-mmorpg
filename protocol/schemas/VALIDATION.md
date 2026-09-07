@@ -30,14 +30,24 @@ FlatBuffers 只保证**结构**合法,以下约束它一概不执行 —— unio
 | # | 规则 | 违反时 |
 |---|---|---|
 | V-E1 | 每个 `SceneEvent.payload` 不得为 `SceneEventPayload_NONE` | 接收方**丢弃整批**并拉 snapshot |
-| V-E2 | `visibility == PUBLIC` 时,payload **只能**是 `PublicSceneChanged` | 同上 —— 这是**视野泄露**防线 |
+| V-E2 | `visibility == PUBLIC` 时,payload 只能是 `PublicSceneChanged` / `RolePresence`;**AOI 未实装的过渡期**另允许 `MovementStarted`(AOI 落地后从本条移除并补负向 fixture) | 同上 —— 这是**视野泄露**防线 |
 | V-E3 | `visibility == PUBLIC` 时 `recipient_role_id` 必须为 0 | 同上 |
 | V-E4 | `visibility == PRIVATE` 时 `recipient_role_id` 必须非 0 且等于接收者 | 同上 |
-| V-E5 | `visibility == PRIVATE` 时 payload **不得**是 `PublicSceneChanged` | 同上 —— 公共状态只走公共流,否则同一状态出现在两条水位里,客户端无法判断以哪条为准 |
+| V-E5 | `visibility == PRIVATE` 时 payload **不得**是 `PublicSceneChanged` / `RolePresence` | 同上 —— 公共状态只走公共流,否则同一状态出现在两条水位里,客户端无法判断以哪条为准 |
 | V-E6 | `chunk_index < chunk_count`,且 `chunk_count >= 1` | 丢弃整批 |
 | V-E7 | `first_stream_seq <= last_stream_seq` | 丢弃整批 |
 | V-E8 | `events` 非空,数量 ≤ 128 | 丢弃整批 |
 | V-E9 | `AoiRebase.entities` 要么为空、要么与 `entity_ids` 等长 | 丢弃整批 |
+
+## 心跳 / 交互(MHR1 MHA1 / MIR1 MIA1)
+
+| # | 规则 | 违反时 |
+|---|---|---|
+| V-H1 | `HeartbeatRequest.request_id` 非空且 ≤ 64 字节 | 拒绝 `21608` |
+| V-H2 | `scene_session_id` 必须非 0、在场、属于请求者、且与 transfer 所在 channel 一致 | 拒绝 `21601` / `21607` |
+| V-N1 | `InteractRequest.request_id` 非空且 ≤ 64 字节 | 拒绝 `21608` |
+| V-N2 | `npc_id` 必须在该场景地图上 | 拒绝 `21611` |
+| V-N3 | 权威位置离 NPC ≤ 其交互距离 | 拒绝 `21612` |
 
 ## Snapshot(MSS1)
 
@@ -109,6 +119,15 @@ fixture 守护。JSON 过渡期(§15.4)同样适用——规则是语义的,不�
 | V-BE4 | `chunk_index < chunk_count`,`chunk_count >= 1`,`first_stream_seq <= last_stream_seq` | 丢弃整批 |
 | V-BE5 | `events` 非空且 ≤ 128;批内 `stream_seq` 严格递增 | 丢弃整批 |
 | V-BE6 | `default_action_applied` 与 `auto_played` 不得同时为 true | 丢弃整批 |
+
+## 即时操作:BattleInstantRequest(MBQ1)
+
+| # | 规则 | 违反时 |
+|---|---|---|
+| V-BQ1 | `request_id` 非空且 ≤ 64 字节 | 拒绝 `21410` |
+| V-BQ2 | `role_id` 必须是本场战斗的一方且属于请求者 | 拒绝 `21404` |
+| V-BQ3 | `state_version` 必须等于服务端当前值 | 拒绝 `21409` |
+| V-BQ4 | `op` 必须是已知值;`SURRENDER` 只在 `COMMAND` 阶段 | 拒绝 `21407` / `21401` |
 
 ## Snapshot:BattleSnapshotEnvelope(MBS1)
 

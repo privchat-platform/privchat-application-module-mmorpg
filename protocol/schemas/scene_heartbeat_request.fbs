@@ -1,0 +1,13 @@
+// 真源:本文件。场景心跳(上行,route mmorpg/scene/heartbeat)。
+// 心跳不携带任何状态变更:续期 scene_session + 回报公共序号对账(WORLD_SCENE §12.5)。
+include "scene_common.fbs";
+namespace privchat.mmorpg.scene;
+
+table HeartbeatRequest {
+  protocol_version:uint;
+  scene_session_id:ulong;
+  request_id:string (required);
+  client_time_ms:ulong;           // 仅诊断
+}
+root_type HeartbeatRequest;
+file_identifier "MHR1";

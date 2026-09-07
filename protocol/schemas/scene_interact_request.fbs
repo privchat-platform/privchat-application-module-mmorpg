@@ -1,0 +1,13 @@
+// 真源:本文件。NPC 交互(上行,route mmorpg/scene/interact)。
+// 客户端只报"我要和谁交互";在不在交互距离内由服务端按权威位置判(WORLD_SCENE §12.10)。
+include "scene_common.fbs";
+namespace privchat.mmorpg.scene;
+
+table InteractRequest {
+  protocol_version:uint;
+  scene_session_id:ulong;
+  request_id:string (required);
+  npc_id:ulong;
+}
+root_type InteractRequest;
+file_identifier "MIR1";

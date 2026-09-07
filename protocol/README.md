@@ -23,12 +23,30 @@ schemas/
   scene_move_ack.fbs      MoveIntentAck             MMA1
   scene_event.fbs         SceneEventBatchEnvelope   MSE1
   scene_snapshot.fbs      SceneSnapshotEnvelope     MSS1
+  scene_heartbeat_request.fbs  HeartbeatRequest     MHR1
+  scene_heartbeat_ack.fbs      HeartbeatAck         MHA1
+  scene_interact_request.fbs   InteractRequest      MIR1
+  scene_interact_ack.fbs       InteractAck          MIA1
   battle_common.fbs       无 root:enum 与共享 table
   battle_command.fbs      BattleCommandEnvelope     MBC1
   battle_command_ack.fbs  BattleCommandAck          MBA1
   battle_event.fbs        BattleEventBatchEnvelope  MBE1
   battle_snapshot.fbs     BattleSnapshotEnvelope    MBS1
+  battle_instant_request.fbs   BattleInstantRequest MBQ1
+  battle_instant_ack.fbs       BattleInstantAck     MBR1
 ```
+
+route ↔ root 对照(MMO_ARCHITECTURE_SPEC §10.6:这张表就是协议真源):
+
+| route / topic | 上行 root | 下行 root |
+|---|---|---|
+| `mmorpg/scene/heartbeat` | HeartbeatRequest MHR1 | HeartbeatAck MHA1 |
+| `mmorpg/scene/move` | MoveIntentEnvelope MMI1 | MoveIntentAck MMA1 |
+| `mmorpg/scene/interact` | InteractRequest MIR1 | InteractAck MIA1 |
+| topic `mmorpg.scene.public` / route `mmorpg/scene/event` | — | SceneEventBatchEnvelope MSE1 |
+| `mmorpg/battle/command` | BattleCommandEnvelope MBC1 | BattleCommandAck MBA1 |
+| `mmorpg/battle/instant` | BattleInstantRequest MBQ1 | BattleInstantAck MBR1 |
+| topic `mmorpg.battle.public` / route `mmorpg/battle/event` | — | BattleEventBatchEnvelope MBE1 |
 
 ## 生成
 

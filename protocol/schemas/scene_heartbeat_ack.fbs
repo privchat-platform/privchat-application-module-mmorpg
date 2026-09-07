@@ -1,0 +1,12 @@
+// 真源:本文件。场景心跳应答。
+include "scene_common.fbs";
+namespace privchat.mmorpg.scene;
+
+table HeartbeatAck {
+  protocol_version:uint;
+  scene_session_id:ulong;
+  server_time_ms:ulong;
+  public_scene_seq:ulong;         // 客户端与本地最后收到的 PUBLIC stream_seq 比对,不连续即拉 snapshot
+}
+root_type HeartbeatAck;
+file_identifier "MHA1";

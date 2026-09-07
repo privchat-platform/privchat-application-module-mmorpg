@@ -88,7 +88,10 @@ def check_intent(d: dict) -> None:
 # 下行:SceneEventBatchEnvelope
 # --------------------------------------------------------------------------
 
-PUBLIC_ONLY = {"PublicSceneChanged"}
+# V-E2 / V-E5:PUBLIC 允许的载荷。MovementStarted 在 AOI 未实装的过渡期允许走 PUBLIC
+# (scene_event.fbs 矩阵注释),AOI 落地后从这里移除并补负向 fixture。
+PUBLIC_ONLY = {"PublicSceneChanged", "RolePresence"}
+PUBLIC_ALLOWED = PUBLIC_ONLY | {"MovementStarted"}
 
 
 def check_event(d: dict) -> None:
@@ -124,7 +127,7 @@ def check_event(d: dict) -> None:
         if pt in (None, "NONE"):
             raise Violation("V-E1", f"events[{i}] payload 为 NONE")
         # V-E2:视野泄露防线
-        if vis == "PUBLIC" and pt not in PUBLIC_ONLY:
+        if vis == "PUBLIC" and pt not in PUBLIC_ALLOWED:
             raise Violation("V-E2", f"PUBLIC 批次携带 {pt}")
         # V-E5:公共状态不得走私有流,否则同一状态落在两条水位上
         if vis == "PRIVATE" and pt in PUBLIC_ONLY:

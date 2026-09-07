@@ -32,7 +32,9 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/cpp" "$TMP/kotlin-kmp" "$TMP/bfbs"
 
 ROOTS=(scene_move_intent scene_move_ack scene_event scene_snapshot
-       battle_command battle_command_ack battle_event battle_snapshot)
+       scene_heartbeat_request scene_heartbeat_ack scene_interact_request scene_interact_ack
+       battle_command battle_command_ack battle_event battle_snapshot
+       battle_instant_request battle_instant_ack)
 for f in "${ROOTS[@]}"; do
     # C++:fixture 工具与校验用;Godot 侧不消费它(用 .bfbs + 通用反射 codec)。
     flatc --cpp -o "$TMP/cpp" "$HERE/schemas/$f.fbs"
@@ -47,7 +49,7 @@ for f in "${ROOTS[@]}"; do KMP_INPUTS+=("$HERE/schemas/$f.fbs"); done
 flatc --kotlin-kmp --gen-all -o "$TMP/kotlin-kmp" "${KMP_INPUTS[@]}"
 
 echo "== 校验 file identifier =="
-declare -a EXPECT=("MMI1" "MMA1" "MSE1" "MSS1" "MBC1" "MBA1" "MBE1" "MBS1")
+declare -a EXPECT=("MMI1" "MMA1" "MSE1" "MSS1" "MHR1" "MHA1" "MIR1" "MIA1" "MBC1" "MBA1" "MBE1" "MBS1" "MBQ1" "MBR1")
 fail=0
 for i in "${!ROOTS[@]}"; do
     f="${ROOTS[$i]}"; want="${EXPECT[$i]}"

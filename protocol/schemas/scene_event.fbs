@@ -52,10 +52,17 @@ table PublicSceneChanged {
   payload:[ubyte];
 }
 
+/// 角色进出场景(在场名单变化)。场景级公共信息,只走 PUBLIC(WORLD_SCENE §12.7)。
+table RolePresence {
+  role_id:ulong;
+  role_name:string;
+  entered:bool;                  // true = 进入,false = 离开
+  position:Vec2Fixed;            // 进入时的权威位置(出生点);离开时忽略
+}
 union SceneEventPayload {
   MovementStarted, MovementCorrected,
   AoiEnter, AoiUpdate, AoiLeave, AoiRebase,
-  PublicSceneChanged
+  PublicSceneChanged, RolePresence
 }
 
 table SceneEvent {
@@ -73,7 +80,7 @@ table SceneEvent {
 ///
 /// | visibility | 允许的 payload | recipient_role_id |
 /// |---|---|---|
-/// | PUBLIC  | **仅** PublicSceneChanged | 必须为 0 |
+/// | PUBLIC  | PublicSceneChanged / RolePresence;**AOI 未实装的过渡期**另允许 MovementStarted(全场可见,WORLD_SCENE §12.7) | 必须为 0 |
 /// | PRIVATE | MovementStarted / MovementCorrected / AoiEnter / AoiUpdate / AoiLeave / AoiRebase | 必须非 0 |
 ///
 /// `PublicSceneChanged` **只走 PUBLIC**:公共状态若同时出现在两条流上,

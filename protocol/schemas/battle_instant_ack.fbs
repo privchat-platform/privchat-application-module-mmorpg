@@ -1,0 +1,12 @@
+// 真源:本文件。即时权威操作的应答。
+include "battle_common.fbs";
+namespace privchat.mmorpg.battle;
+
+table BattleInstantAck {
+  protocol_version:uint;
+  battle_id:ulong;
+  state_version:ulong;
+  phase:Phase;
+}
+root_type BattleInstantAck;
+file_identifier "MBR1";

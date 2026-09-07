@@ -1,0 +1,17 @@
+// 真源:本文件。战斗即时权威操作(上行,route mmorpg/battle/instant,BATTLE §7 / §15.1)。
+// 带 state_version 乐观锁:与服务端不一致 → 21409。
+include "battle_common.fbs";
+namespace privchat.mmorpg.battle;
+
+enum InstantOp : ubyte { SURRENDER }
+
+table BattleInstantRequest {
+  protocol_version:uint;
+  request_id:string (required);
+  battle_id:ulong;
+  role_id:ulong;
+  state_version:ulong;
+  op:InstantOp;
+}
+root_type BattleInstantRequest;
+file_identifier "MBQ1";
