@@ -58,14 +58,17 @@ class BattleServiceTest {
         val s = sessions.rows.getValue(e.sceneSessionId)
         val npc = TestMap.MONSTER_NPC
         sessions.rows[s.id] = s.copy(startX = npc.x - 1000, startY = npc.y, targetX = npc.x - 1000, targetY = npc.y)
-        rooms.broadcasts.clear()
+        rooms.broadcastBytes.clear()
         return e
     }
 
+    // 事件走 MBE1(FlatBuffers);测试解回与 JSON 镜像同形的对象再断言。
     private fun publicEvents(): List<JsonObject> =
-        rooms.broadcasts.filter { "mmorpg.battle.public" in it.second }.flatMap { (_, p) -> Json.parseToJsonElement(p).jsonObject["events"]!!.jsonArray.map { it.jsonObject } }
+        rooms.broadcastBytes.mapNotNull { (_, b) -> logic.codec.BattleFlatCodec.decodeEventBatch(b) }
+            .filter { it["visibility"]!!.jsonPrimitive.content == "PUBLIC" }
+            .flatMap { it["events"]!!.jsonArray.map { e -> e.jsonObject } }
     private fun privateEvents(): List<JsonObject> =
-        rooms.transfers.flatMap { t -> Json.parseToJsonElement(t[3] as String).jsonObject["events"]!!.jsonArray.map { it.jsonObject } }
+        rooms.transferBytes.flatMap { t -> logic.codec.BattleFlatCodec.decodeEventBatch(t[3] as ByteArray)!!["events"]!!.jsonArray.map { it.jsonObject } }
     private fun payloadKeys(events: List<JsonObject>) = events.map { it["payload"]!!.jsonObject.keys.single() }
 
     private suspend fun snapshot(battleId: Long, roleId: Long = 1) = ok(battles.privateSnapshot(1, battleId, roleId))
@@ -99,9 +102,9 @@ class BattleServiceTest {
         // 公共：CREATED→COMMAND；私有：SlotsOffered。
         assertEquals(listOf("phase_changed"), payloadKeys(publicEvents()))
         assertEquals(listOf("slots_offered"), payloadKeys(privateEvents()))
-        assertEquals(listOf(entry.channelId, 1L, BattleService.ROUTE_BATTLE_EVENT), rooms.transfers.single().take(3))
+        assertEquals(listOf(entry.channelId, 1L, BattleService.ROUTE_BATTLE_EVENT), rooms.transferBytes.single().take(3))
         // server 对定向 transfer 的 request_id 有熵要求:必须是 UUID v4。
-        assertTrue(Regex("[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}").matches(rooms.transfers.single()[4] as String))
+        assertTrue(Regex("[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}").matches(rooms.transferBytes.single()[4] as String))
         // 续接拿到同一份。
         assertEquals(entry, ok(battles.transition(1, entry.transitionId)))
         fail(battles.transition(2, entry.transitionId)).let { assertEquals(MmoErrorCodes.SCENE_ENTITY_NOT_CONTROLLABLE, it.code) }
@@ -144,7 +147,7 @@ class BattleServiceTest {
     fun submitFollowsTheIdempotencyMatrixAndResolvesWhenEveryoneSubmitted() = runTest {
         val e = enterNextToMonster()
         val entry = ok(battles.start(1, 1, scene, TestMap.MONSTER_NPC.id, "d1"))
-        rooms.broadcasts.clear(); rooms.transfers.clear()
+        rooms.broadcastBytes.clear(); rooms.transferBytes.clear()
         val snap = snapshot(entry.battleId)
         val ack = ok(battles.submit(1, entry.channelId, envelope(snap, 1)))
         assertEquals(1, ack.acceptedActionSeq)
@@ -171,12 +174,12 @@ class BattleServiceTest {
     @Test
     fun deadlineAppliesTheDefaultActionAndEventsAreRedeliveredAfterPublishFailure() = runTest {
         val entry = enterNextToMonster().let { ok(battles.start(1, 1, scene, TestMap.MONSTER_NPC.id, "d1")) }
-        rooms.broadcasts.clear()
+        rooms.broadcastBytes.clear()
         assertEquals(0, battles.tick(now + 1_000))
         rooms.broadcastFailure = IllegalStateException("room down")
         now += BattleRules.ROUND_MS + 1
         assertEquals(1, battles.tick(now))
-        assertTrue(rooms.broadcasts.isEmpty())
+        assertTrue(rooms.broadcastBytes.isEmpty())
         assertTrue(repo.events.values.any { it.visibility == "PUBLIC" && it.publishedAt == 0L })
         rooms.broadcastFailure = null
         battles.tick(now)

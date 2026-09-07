@@ -6,6 +6,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import logic.MmoErrorCodes
 import logic.codec.BattleCodec
+import logic.codec.BattleFlatCodec
 import logic.map.MapRepository
 import logic.scene.MmoRoleRepository
 import logic.scene.MmoSceneSessionRepository
@@ -228,7 +229,9 @@ class BattleService(
 
     // ---------------- 即时权威操作 ----------------
 
-    suspend fun instant(userId: Long, channelId: Long, req: BattleCodec.InstantRequest): SceneOutcome<JsonObject> {
+    data class InstantResult(val battleId: Long, val stateVersion: Long, val phase: String)
+
+    suspend fun instant(userId: Long, channelId: Long, req: BattleCodec.InstantRequest): SceneOutcome<InstantResult> {
         val battle = repo.getBattle(req.battleId)
         if (battle == null || battle.phase == BattlePhase.CLOSED.name || battle.channelId != channelId) {
             return SceneOutcome.Failure(MmoErrorCodes.BATTLE_NOT_FOUND, "battle ${req.battleId} is not open on channel $channelId")
@@ -248,7 +251,7 @@ class BattleService(
             live.battle.stateVersion
         }
         flush(battle.id)
-        return SceneOutcome.Success(BattleCodec.encodeInstantAck(battle.id, closedVersion, BattlePhase.SETTLE.name))
+        return SceneOutcome.Success(InstantResult(battle.id, closedVersion, BattlePhase.SETTLE.name))
     }
 
     /** 运营强制中止：无胜者，立即进入 SETTLE。 */
@@ -430,15 +433,14 @@ class BattleService(
         val now = nowMs()
         for ((key, events) in pending.groupBy { it.visibility to it.recipientRoleId }) {
             val (visibility, recipient) = key
-            val payload = BattleCodec.encodeEventBatch(battleId, events)
+            // 正式线格式 MBE1(ARCH §10.6);outbox 里的 JSON 单键载荷在编码器里落成 union。
+            val payload = BattleFlatCodec.encodeEventBatch(battleId, events)
             val sent = runCatching {
                 if (visibility == BattleCodec.VISIBILITY_PUBLIC) {
-                    rooms.broadcast(battle.channelId, payload)
+                    rooms.broadcastBytes(battle.channelId, payload)
                 } else {
                     val userId = roles.findById(recipient)?.userId ?: error("recipient role $recipient is gone")
-                    // server 要求 request_id 有足够熵(UUID v4 或 ≥16 随机字节);每次尝试一个新 id,
-                    // 重投的去重由客户端按 stream_seq 完成,不靠 server。
-                    rooms.sendTransfer(battle.channelId, userId, ROUTE_BATTLE_EVENT, uuidV4(), payload)
+                    rooms.sendTransferBytes(battle.channelId, userId, ROUTE_BATTLE_EVENT, uuidV4(), payload)
                 }
             }
             sent.onSuccess { for (e in events) repo.markPublished(e, now) }

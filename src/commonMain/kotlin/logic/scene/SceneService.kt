@@ -7,7 +7,7 @@ import logic.codec.SceneMoveCodec
 import logic.map.MapRepository
 import logic.map.SceneMap
 import logic.codec.ScenePublicEventCodec
-import logic.codec.encodeMovementStarted
+import logic.codec.SceneFlatCodec
 import model.MmoRole
 import model.MmoSceneSession
 import neton.logging.Logger
@@ -124,6 +124,7 @@ class SceneService(
             channelId,
             role,
             now,
+            position = map.spawn,
         )
 
         return SceneOutcome.Success(
@@ -311,13 +312,18 @@ class SceneService(
         idempotency.remember(session.id, intent, ack, now)
 
         val seq = sequencer.next(session.sceneRef)
-        val payload = ScenePublicEventCodec.encodeMovementStarted(
-            sceneRef = session.sceneRef, seq = seq, entityId = role.id,
-            movementSeq = updated.movementSeq, entityVersion = updated.entityVersion, pathId = updated.pathId,
-            start = here, pathPoints = path, startTimeMs = now, speed = updated.speed,
-            navigationVersion = SceneMap.NAVIGATION_VERSION, serverTimeMs = now,
+        // 正式线格式 MSE1(ARCH §10.6);AOI 未实装期间 MovementStarted 走 PUBLIC(V-E2 过渡)。
+        val payload = SceneFlatCodec.encodePublicBatch(
+            sceneRef = SceneRef.parse(session.sceneRef)!!,
+            events = listOf(
+                SceneFlatCodec.Event.Movement(
+                    seq = seq, entityId = role.id, movementSeq = updated.movementSeq, entityVersion = updated.entityVersion, pathId = updated.pathId,
+                    start = here, pathPoints = path, startTimeMs = now, speed = updated.speed, navigationVersion = SceneMap.NAVIGATION_VERSION,
+                ),
+            ),
+            serverTimeMs = now,
         )
-        runCatching { rooms.broadcast(session.channelId, payload) }.onFailure {
+        runCatching { rooms.broadcastBytes(session.channelId, payload) }.onFailure {
             log.warn("mmo.scene.movement.broadcast_failed scene_ref=${session.sceneRef} role_id=${role.id} err=${it.message}")
         }
         return SceneOutcome.Success(ack)
@@ -474,17 +480,21 @@ class SceneService(
         channelId: Long,
         role: MmoRole,
         nowMs: Long,
+        position: Vec2Fixed = Vec2Fixed(0, 0),
     ) {
         val seq = sequencer.next(sceneRef)
-        val payload = ScenePublicEventCodec.encodePresence(
-            event = event,
-            sceneRef = sceneRef,
-            seq = seq,
-            roleId = role.id,
-            roleName = role.name,
+        val ref = SceneRef.parse(sceneRef) ?: return
+        val payload = SceneFlatCodec.encodePublicBatch(
+            sceneRef = ref,
+            events = listOf(
+                SceneFlatCodec.Event.Presence(
+                    seq = seq, roleId = role.id, roleName = role.name,
+                    entered = event == ScenePublicEventCodec.EVENT_ROLE_ENTERED, position = position,
+                ),
+            ),
             serverTimeMs = nowMs,
         )
-        runCatching { rooms.broadcast(channelId, payload) }
+        runCatching { rooms.broadcastBytes(channelId, payload) }
             .onFailure {
                 log.warn(
                     "mmo.scene.presence.broadcast_failed event=$event scene_ref=$sceneRef " +

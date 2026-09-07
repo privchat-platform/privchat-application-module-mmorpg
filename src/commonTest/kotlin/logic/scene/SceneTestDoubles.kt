@@ -138,6 +138,18 @@ class FakeRoomGateway(
         broadcasts += channelId to payload
     }
 
+    /** FlatBuffers 广播(正式格式)。 */
+    val broadcastBytes = mutableListOf<Pair<Long, ByteArray>>()
+
+    override suspend fun broadcastBytes(channelId: Long, payload: ByteArray) {
+        broadcastFailure?.let { throw it }
+        broadcastBytes += channelId to payload
+    }
+
+    /** 解出来的 PUBLIC 场景事件(全部广播按顺序展开)。 */
+    fun sceneEvents(): List<logic.codec.SceneFlatCodec.Event> =
+        broadcastBytes.mapNotNull { logic.codec.SceneFlatCodec.decodePublicBatch(it.second) }.flatMap { it.events }
+
     /** (channelId, userId, route, payload, requestId) */
     val transfers = mutableListOf<List<Any>>()
     var transferFailure: Throwable? = null
@@ -145,6 +157,14 @@ class FakeRoomGateway(
     override suspend fun sendTransfer(channelId: Long, userId: Long, route: String, requestId: String, payload: String) {
         transferFailure?.let { throw it }
         transfers += listOf(channelId, userId, route, payload, requestId)
+    }
+
+    /** (channelId, userId, route, bytes, requestId) */
+    val transferBytes = mutableListOf<List<Any>>()
+
+    override suspend fun sendTransferBytes(channelId: Long, userId: Long, route: String, requestId: String, payload: ByteArray) {
+        transferFailure?.let { throw it }
+        transferBytes += listOf(channelId, userId, route, payload, requestId)
     }
 }
 

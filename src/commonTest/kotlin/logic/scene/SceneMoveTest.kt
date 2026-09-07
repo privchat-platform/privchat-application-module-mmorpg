@@ -47,19 +47,19 @@ class SceneMoveTest {
     @Test
     fun acceptsAMoveAndAnnouncesTheAuthoritativePath() = runTest {
         val e = enterAlice()
-        rooms.broadcasts.clear()
+        rooms.broadcastBytes.clear()
 
         val ack = ok(service.move(1, e.channelId, intent(e.sceneSessionId, 1, moveTo(20_000, 40_000))))
         assertEquals(1L, ack.acceptedMovementSeq)
         assertFalse(ack.replayed)
         assertTrue(ack.pathId > 0)
 
-        val (_, payload) = rooms.broadcasts.single()
-        assertTrue(ScenePublicEventCodec.EVENT_MOVEMENT_STARTED in payload)
+        val movement = assertIs<logic.codec.SceneFlatCodec.Event.Movement>(rooms.sceneEvents().single())
         // 权威起点是出生点，不是客户端说了算。
-        assertTrue(""""authoritative_start_position":{"x":${TestMap.SPAWN.x},"y":${TestMap.SPAWN.y}}""" in payload, payload)
-        assertTrue(""""speed":${logic.map.SceneMap.WALK_SPEED}""" in payload)
-        assertTrue(""""start_time_ms":$now""" in payload)
+        assertEquals(TestMap.SPAWN, movement.start)
+        assertEquals(logic.map.SceneMap.WALK_SPEED, movement.speed)
+        assertEquals(now, movement.startTimeMs)
+        assertEquals(Vec2Fixed(20_000, 40_000), movement.pathPoints.last())
     }
 
     @Test
@@ -76,12 +76,12 @@ class SceneMoveTest {
     fun aRetryWithTheSameRequestIdReplaysTheFirstAck() = runTest {
         val e = enterAlice()
         val first = ok(service.move(1, e.channelId, intent(e.sceneSessionId, 1, moveTo(1, 1), "same")))
-        rooms.broadcasts.clear()
+        rooms.broadcastBytes.clear()
         // 重试带同样的 seq：若先比序号就会被当成迟到拒掉——这是 V-I5 必须后判的原因。
         val again = ok(service.move(1, e.channelId, intent(e.sceneSessionId, 1, moveTo(1, 1), "same")))
         assertTrue(again.replayed)
         assertEquals(first.pathId, again.pathId)
-        assertTrue(rooms.broadcasts.isEmpty(), "a replay must not re-announce the movement")
+        assertTrue(rooms.broadcastBytes.isEmpty(), "a replay must not re-announce the movement")
     }
 
     @Test

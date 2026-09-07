@@ -25,14 +25,20 @@ interface SceneRoomGateway {
         scope: String,
     ): Ticket
 
-    /** 向 Room 广播一条公共事件。 */
+    /** 向 Room 广播一条公共事件(文本;JSON 过渡期 / 诊断)。 */
     suspend fun broadcast(channelId: Long, payload: String)
+
+    /** 向 Room 广播一条公共事件(FlatBuffers 字节;正式格式,ARCH §10.6)。 */
+    suspend fun broadcastBytes(channelId: Long, payload: ByteArray)
 
     /**
      * 向 channel 上的一个用户定向投递（PRIVATE 事件）。`payload` 是 UTF-8 文本；
      * base64 是传输层的事，在这里包掉。
      */
     suspend fun sendTransfer(channelId: Long, userId: Long, route: String, requestId: String, payload: String)
+
+    /** 同上,载荷为 FlatBuffers 字节(正式格式)。 */
+    suspend fun sendTransferBytes(channelId: Long, userId: Long, route: String, requestId: String, payload: ByteArray)
 
     data class Ticket(val ticket: String, val exp: Long)
 }
@@ -66,15 +72,22 @@ class PrivchatSceneRoomGateway(
         client.broadcastRoom(channelId, payload)
     }
 
+    override suspend fun broadcastBytes(channelId: Long, payload: ByteArray) {
+        client.broadcastRoomBytes(channelId, payload)
+    }
+
     @OptIn(kotlin.io.encoding.ExperimentalEncodingApi::class)
-    override suspend fun sendTransfer(channelId: Long, userId: Long, route: String, requestId: String, payload: String) {
+    override suspend fun sendTransfer(channelId: Long, userId: Long, route: String, requestId: String, payload: String) =
+        sendTransferBytes(channelId, userId, route, requestId, payload.encodeToByteArray())
+
+    override suspend fun sendTransferBytes(channelId: Long, userId: Long, route: String, requestId: String, payload: ByteArray) {
         client.sendTransfer(
             TransferSendRequest(
                 requestId = requestId,
                 channelId = channelId,
                 targetUserId = userId,
                 route = route,
-                body = kotlin.io.encoding.Base64.encode(payload.encodeToByteArray()),
+                body = kotlin.io.encoding.Base64.encode(payload),
             ),
         )
     }

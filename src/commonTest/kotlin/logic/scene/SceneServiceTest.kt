@@ -5,6 +5,7 @@ import logic.MmoErrorCodes
 import logic.codec.ScenePublicEventCodec
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -52,10 +53,12 @@ class SceneServiceTest {
         assertEquals(r.channelId, rooms.tickets.single().first)
         assertEquals(1L, rooms.tickets.single().second)
 
-        val (broadcastChannel, payload) = rooms.broadcasts.single()
+        val (broadcastChannel, _) = rooms.broadcastBytes.single()
         assertEquals(r.channelId, broadcastChannel)
-        assertTrue(ScenePublicEventCodec.EVENT_ROLE_ENTERED in payload)
-        assertTrue(""""role_name":"Alice"""" in payload)
+        val presence = assertIs<logic.codec.SceneFlatCodec.Event.Presence>(rooms.sceneEvents().single())
+        assertTrue(presence.entered)
+        assertEquals("Alice", presence.roleName)
+        assertEquals(TestMap.SPAWN, presence.position)
     }
 
     @Test
@@ -106,12 +109,15 @@ class SceneServiceTest {
     fun movingToAnotherSceneAnnouncesDepartureOnTheOldChannel() = runTest {
         val alice = roles.seed(userId = 1, name = "Alice")
         val first = ok(service.enter(1, alice.id, scene, "d1"))
-        rooms.broadcasts.clear()
+        rooms.broadcastBytes.clear()
 
         val second = ok(service.enter(1, alice.id, "l-10024-1", "d1"))
 
-        val left = rooms.broadcasts.first { ScenePublicEventCodec.EVENT_ROLE_LEFT in it.second }
-        val entered = rooms.broadcasts.first { ScenePublicEventCodec.EVENT_ROLE_ENTERED in it.second }
+        fun presenceBroadcast(entered: Boolean) = rooms.broadcastBytes.first { (_, bytes) ->
+            logic.codec.SceneFlatCodec.decodePublicBatch(bytes)!!.events.any { it is logic.codec.SceneFlatCodec.Event.Presence && it.entered == entered }
+        }
+        val left = presenceBroadcast(entered = false)
+        val entered = presenceBroadcast(entered = true)
         // leave 必须发在**旧** channel 上：发到新 channel 的话，旧场景里的人永远
         // 不知道他走了。
         assertEquals(first.channelId, left.first)
@@ -199,12 +205,12 @@ class SceneServiceTest {
     fun leaveClosesTheSessionAndAnnouncesDeparture() = runTest {
         val alice = roles.seed(userId = 1, name = "Alice")
         val entered = ok(service.enter(1, alice.id, scene, "d1"))
-        rooms.broadcasts.clear()
+        rooms.broadcastBytes.clear()
 
         ok(service.leave(1, alice.id, scene))
 
         assertEquals(0, sessions.rows.getValue(entered.sceneSessionId).status)
-        assertTrue(ScenePublicEventCodec.EVENT_ROLE_LEFT in rooms.broadcasts.single().second)
+        assertFalse(assertIs<logic.codec.SceneFlatCodec.Event.Presence>(rooms.sceneEvents().single()).entered)
     }
 
     @Test

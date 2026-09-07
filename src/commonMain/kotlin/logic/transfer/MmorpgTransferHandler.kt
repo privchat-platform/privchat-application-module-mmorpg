@@ -7,6 +7,8 @@ import logic.codec.SceneHeartbeatCodec
 import logic.codec.SceneInteractCodec
 import logic.codec.SceneMoveCodec
 import logic.codec.SceneMoveFlatCodec
+import logic.codec.SceneFlatCodec
+import logic.codec.BattleFlatCodec
 import logic.scene.SceneOutcome
 import logic.scene.SceneService
 import neton.logging.Logger
@@ -51,7 +53,8 @@ class MmorpgTransferHandler(
         }
 
     private suspend fun heartbeat(ctx: PrivChatTransferContext): PrivChatTransferResult {
-        val decoded = SceneHeartbeatCodec.decodeRequest(ctx.body)
+        val flat = SceneFlatCodec.identifierOf(ctx.body) == SceneFlatCodec.IDENT_HEARTBEAT
+        val decoded = if (flat) SceneFlatCodec.decodeHeartbeat(ctx.body) else SceneHeartbeatCodec.decodeRequest(ctx.body)
         val request = decoded.getOrElse { failure ->
             val error = (failure as? SceneHeartbeatCodec.DecodeFailure)?.error
             val code = when (error) {
@@ -75,15 +78,14 @@ class MmorpgTransferHandler(
             )
         ) {
             is SceneOutcome.Failure -> PrivChatTransferResult.error(outcome.code, outcome.message)
-            is SceneOutcome.Success -> PrivChatTransferResult.ok(
-                SceneHeartbeatCodec.encodeResponse(
-                    SceneHeartbeatCodec.Response(
-                        sceneSessionId = outcome.value.sceneSessionId,
-                        serverTimeMs = outcome.value.serverTimeMs,
-                        publicSceneSeq = outcome.value.publicSceneSeq,
-                    ),
-                ),
-            )
+            is SceneOutcome.Success -> {
+                val response = SceneHeartbeatCodec.Response(
+                    sceneSessionId = outcome.value.sceneSessionId,
+                    serverTimeMs = outcome.value.serverTimeMs,
+                    publicSceneSeq = outcome.value.publicSceneSeq,
+                )
+                PrivChatTransferResult.ok(if (flat) SceneFlatCodec.encodeHeartbeatAck(response) else SceneHeartbeatCodec.encodeResponse(response))
+            }
         }
     }
 
@@ -111,38 +113,46 @@ class MmorpgTransferHandler(
     }
 
     private suspend fun interact(ctx: PrivChatTransferContext): PrivChatTransferResult {
-        val request = SceneInteractCodec.decodeRequest(ctx.body).getOrElse { failure ->
+        val flat = SceneFlatCodec.identifierOf(ctx.body) == SceneFlatCodec.IDENT_INTERACT
+        val request = (if (flat) SceneFlatCodec.decodeInteract(ctx.body) else SceneInteractCodec.decodeRequest(ctx.body)).getOrElse { failure ->
             val code = if ((failure as? SceneInteractCodec.DecodeFailure)?.error is SceneInteractCodec.DecodeError.UnsupportedVersion)
                 MmoErrorCodes.SCENE_PROTOCOL_VERSION_UNSUPPORTED else MmoErrorCodes.SCENE_PAYLOAD_TOO_LARGE
             return PrivChatTransferResult.error(code, failure.message ?: "malformed interact request")
         }
         return when (val outcome = scenes.interact(ctx.userId, ctx.channelId, request)) {
             is SceneOutcome.Failure -> PrivChatTransferResult.error(outcome.code, outcome.message)
-            is SceneOutcome.Success -> PrivChatTransferResult.ok(SceneInteractCodec.encodeResponse(outcome.value))
+            is SceneOutcome.Success -> PrivChatTransferResult.ok(if (flat) SceneFlatCodec.encodeInteractAck(outcome.value) else SceneInteractCodec.encodeResponse(outcome.value))
         }
     }
 
     private suspend fun battleCommand(ctx: PrivChatTransferContext): PrivChatTransferResult {
-        val env = BattleCodec.decodeCommand(ctx.body).getOrElse { failure ->
+        val flat = SceneFlatCodec.identifierOf(ctx.body) == BattleFlatCodec.IDENT_COMMAND
+        val env = (if (flat) BattleFlatCodec.decodeCommand(ctx.body) else BattleCodec.decodeCommand(ctx.body)).getOrElse { failure ->
             val code = if ((failure as? BattleCodec.DecodeFailure)?.error is BattleCodec.DecodeError.UnsupportedVersion)
                 MmoErrorCodes.BATTLE_PROTOCOL_VERSION_UNSUPPORTED else MmoErrorCodes.BATTLE_PAYLOAD_TOO_LARGE
             return PrivChatTransferResult.error(code, failure.message ?: "malformed battle command")
         }
         return when (val outcome = battles.submit(ctx.userId, ctx.channelId, env)) {
             is SceneOutcome.Failure -> PrivChatTransferResult.error(outcome.code, outcome.message)
-            is SceneOutcome.Success -> PrivChatTransferResult.ok(BattleCodec.encodeAck(outcome.value).toString().encodeToByteArray())
+            is SceneOutcome.Success -> PrivChatTransferResult.ok(
+                if (flat) BattleFlatCodec.encodeAck(outcome.value) else BattleCodec.encodeAck(outcome.value).toString().encodeToByteArray(),
+            )
         }
     }
 
     private suspend fun battleInstant(ctx: PrivChatTransferContext): PrivChatTransferResult {
-        val req = BattleCodec.decodeInstant(ctx.body).getOrElse { failure ->
+        val flat = SceneFlatCodec.identifierOf(ctx.body) == BattleFlatCodec.IDENT_INSTANT
+        val req = (if (flat) BattleFlatCodec.decodeInstant(ctx.body) else BattleCodec.decodeInstant(ctx.body)).getOrElse { failure ->
             val code = if ((failure as? BattleCodec.DecodeFailure)?.error is BattleCodec.DecodeError.UnsupportedVersion)
                 MmoErrorCodes.BATTLE_PROTOCOL_VERSION_UNSUPPORTED else MmoErrorCodes.BATTLE_PAYLOAD_TOO_LARGE
             return PrivChatTransferResult.error(code, failure.message ?: "malformed instant request")
         }
         return when (val outcome = battles.instant(ctx.userId, ctx.channelId, req)) {
             is SceneOutcome.Failure -> PrivChatTransferResult.error(outcome.code, outcome.message)
-            is SceneOutcome.Success -> PrivChatTransferResult.ok(outcome.value.toString().encodeToByteArray())
+            is SceneOutcome.Success -> PrivChatTransferResult.ok(
+                if (flat) BattleFlatCodec.encodeInstantAck(outcome.value.battleId, outcome.value.stateVersion, outcome.value.phase)
+                else BattleCodec.encodeInstantAck(outcome.value.battleId, outcome.value.stateVersion, outcome.value.phase).toString().encodeToByteArray(),
+            )
         }
     }
 
