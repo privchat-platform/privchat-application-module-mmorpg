@@ -23,12 +23,16 @@ kotlin {
 
     sourceSets {
         commonMain {
-            // protocol/generated/kotlin 故意**没有**挂进来。
-            //
-            // flatc 的 Kotlin 后端只产出 JVM 绑定（import java.nio.ByteBuffer /
-            // com.google.flatbuffers.Table），这两者在 Kotlin/Native 都不存在，22 个
-            // 生成文件里有 19 个因此编不过。schema 与 fixtures 保留在 protocol/ 下
-            // 不动；线上编码先用 JSON 打通链路，编码方案另行决定后再接回来。
+            // FlatBuffers（MMO_ARCHITECTURE_SPEC §10.6）：
+            //   - protocol/runtime：vendor 进来的 flatbuffers-kotlin 多平台运行时
+            //     （google/flatbuffers kotlin/flatbuffers-kotlin，上游从未发布到 Maven，
+            //     且只声明了 macOS/iOS target；平台相关代码只有 nativeMain 一个文件）。
+            //     它只服务本模块，所以放在本模块而不是 neton 框架里。
+            //   - protocol/generated/kotlin-kmp：`flatc --kotlin-kmp` 的产物，由
+            //     protocol/scripts 重新生成，不手改。
+            //   `flatc --kotlin`（JVM 后端）的旧产物留在 protocol/generated/kotlin，不挂载。
+            kotlin.srcDir("protocol/runtime/commonMain")
+            kotlin.srcDir("protocol/generated/kotlin-kmp")
             dependencies {
                 implementation("com.netonstream.app:module-system")
                 implementation("com.netonstream.app:module-infra")
@@ -77,6 +81,8 @@ afterEvaluate {
         kotlin.sourceSets.findByName(name)?.let { ss ->
             val filtered = ss.kotlin.srcDirs.filter { !it.path.contains("generated/ksp") }
             if (filtered.size < ss.kotlin.srcDirs.size) ss.kotlin.setSrcDirs(filtered)
+            // flatbuffers-kotlin 运行时的 expect/actual 平台实现（唯一一个平台文件）。
+            ss.kotlin.srcDir("protocol/runtime/nativeMain")
         }
     }
 }
