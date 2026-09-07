@@ -19,6 +19,10 @@ import transfer.PrivChatTransferResult
 /**
  * mmorpg 的 Channel Transfer 入口。
  *
+ * **线格式只有 FlatBuffers**(MMO_ARCHITECTURE_SPEC §10.6):每个 route 只认对应的
+ * `file_identifier`,其它字节一律按载荷非法拒绝(21608 / 21410)。JSON 只属于 HTTP 接口,
+ * 传输层本身就是二进制,业务口不再有"JSON 或 FlatBuffers"的分支。
+ *
  * `serviceName` 必须等于 `privchat_business_service.name`——dispatcher 走
  * `channel_id → service_id → service.name → registry.find(name)`，代码里不出现
  * `service_id`，部署侧改 ID 不需要重编。
@@ -53,8 +57,7 @@ class MmorpgTransferHandler(
         }
 
     private suspend fun heartbeat(ctx: PrivChatTransferContext): PrivChatTransferResult {
-        val flat = SceneFlatCodec.identifierOf(ctx.body) == SceneFlatCodec.IDENT_HEARTBEAT
-        val decoded = if (flat) SceneFlatCodec.decodeHeartbeat(ctx.body) else SceneHeartbeatCodec.decodeRequest(ctx.body)
+        val decoded = SceneFlatCodec.decodeHeartbeat(ctx.body)
         val request = decoded.getOrElse { failure ->
             val error = (failure as? SceneHeartbeatCodec.DecodeFailure)?.error
             val code = when (error) {
@@ -84,17 +87,13 @@ class MmorpgTransferHandler(
                     serverTimeMs = outcome.value.serverTimeMs,
                     publicSceneSeq = outcome.value.publicSceneSeq,
                 )
-                PrivChatTransferResult.ok(if (flat) SceneFlatCodec.encodeHeartbeatAck(response) else SceneHeartbeatCodec.encodeResponse(response))
+                PrivChatTransferResult.ok(SceneFlatCodec.encodeHeartbeatAck(response))
             }
         }
     }
 
     private suspend fun move(ctx: PrivChatTransferContext): PrivChatTransferResult {
-        // 过渡期双格式(MMO_ARCHITECTURE_SPEC §10.7):FlatBuffers(MMI1)是正式格式,
-        // 按 identifier 识别并以 MMA1 应答;JSON 镜像仍可用,直到客户端全部切换。
-        val flat = SceneMoveFlatCodec.looksLikeIntent(ctx.body)
-        val decoded = if (flat) SceneMoveFlatCodec.decodeIntent(ctx.body) else SceneMoveCodec.decodeIntent(ctx.body)
-        val intent = decoded.getOrElse { failure ->
+        val intent = SceneMoveFlatCodec.decodeIntent(ctx.body).getOrElse { failure ->
             val error = (failure as? SceneMoveCodec.DecodeFailure)?.error
             val code = when (error) {
                 is SceneMoveCodec.DecodeError.UnsupportedVersion -> MmoErrorCodes.SCENE_PROTOCOL_VERSION_UNSUPPORTED
@@ -106,43 +105,36 @@ class MmorpgTransferHandler(
         return when (val outcome = scenes.move(userId = ctx.userId, channelId = ctx.channelId, intent = intent)) {
             // 拒绝一律走外层 code、data 为空（spec §9.1）。
             is SceneOutcome.Failure -> PrivChatTransferResult.error(outcome.code, outcome.message)
-            is SceneOutcome.Success -> PrivChatTransferResult.ok(
-                if (flat) SceneMoveFlatCodec.encodeAck(outcome.value) else SceneMoveCodec.encodeAck(outcome.value),
-            )
+            is SceneOutcome.Success -> PrivChatTransferResult.ok(SceneMoveFlatCodec.encodeAck(outcome.value))
         }
     }
 
     private suspend fun interact(ctx: PrivChatTransferContext): PrivChatTransferResult {
-        val flat = SceneFlatCodec.identifierOf(ctx.body) == SceneFlatCodec.IDENT_INTERACT
-        val request = (if (flat) SceneFlatCodec.decodeInteract(ctx.body) else SceneInteractCodec.decodeRequest(ctx.body)).getOrElse { failure ->
+        val request = SceneFlatCodec.decodeInteract(ctx.body).getOrElse { failure ->
             val code = if ((failure as? SceneInteractCodec.DecodeFailure)?.error is SceneInteractCodec.DecodeError.UnsupportedVersion)
                 MmoErrorCodes.SCENE_PROTOCOL_VERSION_UNSUPPORTED else MmoErrorCodes.SCENE_PAYLOAD_TOO_LARGE
             return PrivChatTransferResult.error(code, failure.message ?: "malformed interact request")
         }
         return when (val outcome = scenes.interact(ctx.userId, ctx.channelId, request)) {
             is SceneOutcome.Failure -> PrivChatTransferResult.error(outcome.code, outcome.message)
-            is SceneOutcome.Success -> PrivChatTransferResult.ok(if (flat) SceneFlatCodec.encodeInteractAck(outcome.value) else SceneInteractCodec.encodeResponse(outcome.value))
+            is SceneOutcome.Success -> PrivChatTransferResult.ok(SceneFlatCodec.encodeInteractAck(outcome.value))
         }
     }
 
     private suspend fun battleCommand(ctx: PrivChatTransferContext): PrivChatTransferResult {
-        val flat = SceneFlatCodec.identifierOf(ctx.body) == BattleFlatCodec.IDENT_COMMAND
-        val env = (if (flat) BattleFlatCodec.decodeCommand(ctx.body) else BattleCodec.decodeCommand(ctx.body)).getOrElse { failure ->
+        val env = BattleFlatCodec.decodeCommand(ctx.body).getOrElse { failure ->
             val code = if ((failure as? BattleCodec.DecodeFailure)?.error is BattleCodec.DecodeError.UnsupportedVersion)
                 MmoErrorCodes.BATTLE_PROTOCOL_VERSION_UNSUPPORTED else MmoErrorCodes.BATTLE_PAYLOAD_TOO_LARGE
             return PrivChatTransferResult.error(code, failure.message ?: "malformed battle command")
         }
         return when (val outcome = battles.submit(ctx.userId, ctx.channelId, env)) {
             is SceneOutcome.Failure -> PrivChatTransferResult.error(outcome.code, outcome.message)
-            is SceneOutcome.Success -> PrivChatTransferResult.ok(
-                if (flat) BattleFlatCodec.encodeAck(outcome.value) else BattleCodec.encodeAck(outcome.value).toString().encodeToByteArray(),
-            )
+            is SceneOutcome.Success -> PrivChatTransferResult.ok(BattleFlatCodec.encodeAck(outcome.value))
         }
     }
 
     private suspend fun battleInstant(ctx: PrivChatTransferContext): PrivChatTransferResult {
-        val flat = SceneFlatCodec.identifierOf(ctx.body) == BattleFlatCodec.IDENT_INSTANT
-        val req = (if (flat) BattleFlatCodec.decodeInstant(ctx.body) else BattleCodec.decodeInstant(ctx.body)).getOrElse { failure ->
+        val req = BattleFlatCodec.decodeInstant(ctx.body).getOrElse { failure ->
             val code = if ((failure as? BattleCodec.DecodeFailure)?.error is BattleCodec.DecodeError.UnsupportedVersion)
                 MmoErrorCodes.BATTLE_PROTOCOL_VERSION_UNSUPPORTED else MmoErrorCodes.BATTLE_PAYLOAD_TOO_LARGE
             return PrivChatTransferResult.error(code, failure.message ?: "malformed instant request")
@@ -150,8 +142,7 @@ class MmorpgTransferHandler(
         return when (val outcome = battles.instant(ctx.userId, ctx.channelId, req)) {
             is SceneOutcome.Failure -> PrivChatTransferResult.error(outcome.code, outcome.message)
             is SceneOutcome.Success -> PrivChatTransferResult.ok(
-                if (flat) BattleFlatCodec.encodeInstantAck(outcome.value.battleId, outcome.value.stateVersion, outcome.value.phase)
-                else BattleCodec.encodeInstantAck(outcome.value.battleId, outcome.value.stateVersion, outcome.value.phase).toString().encodeToByteArray(),
+                BattleFlatCodec.encodeInstantAck(outcome.value.battleId, outcome.value.stateVersion, outcome.value.phase),
             )
         }
     }

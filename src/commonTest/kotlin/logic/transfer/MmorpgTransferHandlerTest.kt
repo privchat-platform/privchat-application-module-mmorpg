@@ -2,6 +2,10 @@ package logic.transfer
 
 import kotlinx.coroutines.test.runTest
 import logic.MmoErrorCodes
+import logic.codec.SceneFlatCodec
+import logic.codec.SceneHeartbeatCodec
+import logic.codec.SceneMoveCodec
+import logic.codec.SceneMoveFlatCodec
 import logic.scene.FakeChannelService
 import logic.scene.FakeMapRepository
 import logic.scene.FakeRoleRepository
@@ -40,7 +44,7 @@ class MmorpgTransferHandlerTest {
 
     private fun ctx(
         route: String,
-        body: String,
+        body: ByteArray,
         userId: Long = 1,
         channelId: Long = 5000,
     ) = PrivChatTransferContext(
@@ -55,13 +59,17 @@ class MmorpgTransferHandlerTest {
         businessRefId = null,
         businessRefType = null,
         route = route,
-        body = body.encodeToByteArray(),
+        body = body,
         receivedAtMs = 0,
     )
 
+    // 线格式只有 FlatBuffers:请求体由同一套 codec 编出(MHR1 / MMI1)。
     private fun heartbeatBody(sessionId: Long, version: Int = 1) =
-        """{"protocol_version":$version,"scene_session_id":$sessionId,""" +
-            """"request_id":"r-1","client_time_ms":1}"""
+        SceneFlatCodec.encodeHeartbeat(SceneHeartbeatCodec.Request(version, sessionId, "r-1", 1))
+
+    private fun moveBody(sessionId: Long, x: Int, y: Int) = SceneMoveFlatCodec.encodeIntent(
+        SceneMoveCodec.Intent(1, sessionId, "m-1", 1, SceneMoveCodec.Command.MoveTo(logic.scene.Vec2Fixed(x, y)), 1),
+    )
 
     private suspend fun enterAlice(): Pair<Long, Long> {
         val alice = roles.seed(userId = 1, name = "Alice")
@@ -89,16 +97,16 @@ class MmorpgTransferHandlerTest {
         )
 
         assertEquals(0, result.code)
-        val payload = result.data.decodeToString()
-        assertTrue(""""scene_session_id":$sessionId""" in payload)
-        assertTrue(""""server_time_ms":12345""" in payload)
+        val ack = SceneFlatCodec.decodeHeartbeatAck(result.data)!!
+        assertEquals(sessionId, ack.sceneSessionId)
+        assertEquals(12345L, ack.serverTimeMs)
     }
 
     @Test
     fun rejectsAnUnknownRouteInsteadOfSwallowingIt() = runTest {
         // 前缀匹配会把未实装的 route 误吞进已有分支，客户端会以为动作成功了。
         // 用 21610 而不是 21600：客户端收到 21600 会去重建场景，但场景是好的。
-        val result = handler.handle(ctx("mmorpg/scene/teleport", "{}"))
+        val result = handler.handle(ctx("mmorpg/scene/teleport", ByteArray(0)))
         assertEquals(MmoErrorCodes.SCENE_COMMAND_INVALID, result.code)
         assertTrue("mmorpg/scene/teleport" in result.message)
     }
@@ -106,21 +114,17 @@ class MmorpgTransferHandlerTest {
     @Test
     fun acceptsAMoveAndReturnsTheAck() = runTest {
         val (sessionId, channelId) = enterAlice()
-        val body = """{"protocol_version":1,"scene_session_id":$sessionId,"request_id":"m-1","movement_seq":1,""" +
-            """"command":{"move_to":{"target_position":{"x":1000,"y":2000}}},"client_time_ms":1}"""
-        val result = handler.handle(ctx(MmorpgTransferHandler.ROUTE_SCENE_MOVE, body, channelId = channelId))
+        val result = handler.handle(ctx(MmorpgTransferHandler.ROUTE_SCENE_MOVE, moveBody(sessionId, 1000, 2000), channelId = channelId))
         assertEquals(0, result.code)
-        val payload = result.data.decodeToString()
-        assertTrue(""""accepted_movement_seq":1""" in payload, payload)
-        assertTrue(""""replayed":false""" in payload, payload)
+        val ack = SceneMoveFlatCodec.decodeAck(result.data)!!
+        assertEquals(1L, ack.acceptedMovementSeq)
+        assertEquals(false, ack.replayed)
     }
 
     @Test
     fun aRejectedMoveCarriesTheCodeOutsideAndNoData() = runTest {
         val (sessionId, channelId) = enterAlice()
-        val body = """{"protocol_version":1,"scene_session_id":$sessionId,"request_id":"m-1","movement_seq":1,""" +
-            """"command":{"move_to":{"target_position":{"x":-5,"y":0}}}}"""
-        val result = handler.handle(ctx(MmorpgTransferHandler.ROUTE_SCENE_MOVE, body, channelId = channelId))
+        val result = handler.handle(ctx(MmorpgTransferHandler.ROUTE_SCENE_MOVE, moveBody(sessionId, -5, 0), channelId = channelId))
         assertEquals(MmoErrorCodes.SCENE_MOVE_TARGET_UNREACHABLE, result.code)
         assertTrue(result.data.isEmpty(), "rejections carry no data (spec 9.1)")
     }
@@ -141,8 +145,11 @@ class MmorpgTransferHandlerTest {
 
     @Test
     fun mapsAMalformedBodyToPayloadError() = runTest {
-        val result = handler.handle(MmorpgTransferHandler.ROUTE_SCENE_HEARTBEAT.let { ctx(it, "garbage") })
+        val result = handler.handle(MmorpgTransferHandler.ROUTE_SCENE_HEARTBEAT.let { ctx(it, "garbage".encodeToByteArray()) })
         assertEquals(MmoErrorCodes.SCENE_PAYLOAD_TOO_LARGE, result.code)
+        // JSON 属于 HTTP 接口;transfer 上出现 JSON 同样是非法载荷,不再有第二种格式。
+        val json = handler.handle(ctx(MmorpgTransferHandler.ROUTE_SCENE_HEARTBEAT, """{"protocol_version":1,"scene_session_id":1,"request_id":"r"}""".encodeToByteArray()))
+        assertEquals(MmoErrorCodes.SCENE_PAYLOAD_TOO_LARGE, json.code)
     }
 
     @Test

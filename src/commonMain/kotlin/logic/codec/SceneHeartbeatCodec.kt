@@ -1,15 +1,9 @@
 package logic.codec
 
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.longOrNull
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.put
 
 /**
- * Scene heartbeat 的线格式。
+ * Scene heartbeat 的**领域对象与错误类型**。线格式只有 FlatBuffers(MHR1/MHA1),
+ * 编解码在 [SceneFlatCodec];这里不再有 JSON。
  *
  * ### 为什么单独一层
  *
@@ -52,34 +46,6 @@ object SceneHeartbeatCodec {
         data class MissingField(val name: String) : DecodeError
     }
 
-    fun decodeRequest(bytes: ByteArray): Result<Request> {
-        val obj = runCatching {
-            Json.parseToJsonElement(bytes.decodeToString()) as? JsonObject
-        }.getOrNull() ?: return Result.failure(DecodeFailure(DecodeError.NotAnObject))
-
-        val version = obj["protocol_version"]?.jsonPrimitive?.intOrNull
-            ?: return Result.failure(DecodeFailure(DecodeError.MissingField("protocol_version")))
-        if (version != PROTOCOL_VERSION) {
-            return Result.failure(DecodeFailure(DecodeError.UnsupportedVersion(version)))
-        }
-
-        val sessionId = obj["scene_session_id"]?.jsonPrimitive?.longOrNull
-            ?: return Result.failure(DecodeFailure(DecodeError.MissingField("scene_session_id")))
-        val requestId = obj["request_id"]?.jsonPrimitive?.contentOrNullSafe()
-            ?: return Result.failure(DecodeFailure(DecodeError.MissingField("request_id")))
-        val clientTime = obj["client_time_ms"]?.jsonPrimitive?.longOrNull
-            ?: return Result.failure(DecodeFailure(DecodeError.MissingField("client_time_ms")))
-
-        return Result.success(Request(version, sessionId, requestId, clientTime))
-    }
-
-    fun encodeResponse(r: Response): ByteArray = buildJsonObject {
-        put("protocol_version", PROTOCOL_VERSION)
-        put("scene_session_id", r.sceneSessionId)
-        put("server_time_ms", r.serverTimeMs)
-        put("public_scene_seq", r.publicSceneSeq)
-    }.toString().encodeToByteArray()
-
     class DecodeFailure(val error: DecodeError) : Exception(describe(error))
 }
 
@@ -90,6 +56,3 @@ private fun describe(e: SceneHeartbeatCodec.DecodeError): String = when (e) {
             "${SceneHeartbeatCodec.PROTOCOL_VERSION}"
     is SceneHeartbeatCodec.DecodeError.MissingField -> "missing required field: ${e.name}"
 }
-
-private fun kotlinx.serialization.json.JsonPrimitive.contentOrNullSafe(): String? =
-    if (isString) content.takeIf { it.isNotEmpty() } else null

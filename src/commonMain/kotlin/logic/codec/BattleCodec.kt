@@ -58,30 +58,6 @@ object BattleCodec {
 
     class DecodeFailure(val error: DecodeError) : Exception(error.toString())
 
-    fun decodeCommand(bytes: ByteArray): Result<CommandEnvelope> {
-        val obj = parse(bytes) ?: return fail(DecodeError.NotAnObject)
-        badVersion(obj)?.let { return fail(it) }
-        val requestId = obj.string("request_id") ?: return fail(DecodeError.MissingField("request_id"))
-        if (requestId.encodeToByteArray().size > MAX_REQUEST_ID_BYTES) return fail(DecodeError.TooLarge("request_id"))
-        val payloadObj = obj["payload"] as? JsonObject
-        val payload = payloadObj?.let { decodeCommandPayload(it) }
-        return Result.success(
-            CommandEnvelope(
-                requestId = requestId,
-                battleId = obj.long("battle_id") ?: return fail(DecodeError.MissingField("battle_id")),
-                roleId = obj.long("role_id") ?: return fail(DecodeError.MissingField("role_id")),
-                actorId = obj.long("actor_id") ?: return fail(DecodeError.MissingField("actor_id")),
-                commandSlotId = obj.long("command_slot_id") ?: return fail(DecodeError.MissingField("command_slot_id")),
-                round = obj.int("round") ?: return fail(DecodeError.MissingField("round")),
-                phase = obj.string("phase") ?: return fail(DecodeError.MissingField("phase")),
-                phaseVersion = obj.long("phase_version") ?: return fail(DecodeError.MissingField("phase_version")),
-                actionSeq = obj.int("action_seq") ?: return fail(DecodeError.MissingField("action_seq")),
-                payload = payload,
-                payloadJson = payload?.let { encodeCommandPayload(it).toString() } ?: "",
-            ),
-        )
-    }
-
     /** `CommandPayload` union 的单键对象 → 指令；未知键 / 空对象 → null。 */
     fun decodeCommandPayload(obj: JsonObject): BattleCommand? {
         val (key, value) = obj.entries.firstOrNull() ?: return null
@@ -159,27 +135,6 @@ object BattleCodec {
 
     const val OP_SURRENDER: String = "SURRENDER"
 
-    fun decodeInstant(bytes: ByteArray): Result<InstantRequest> {
-        val obj = parse(bytes) ?: return fail(DecodeError.NotAnObject)
-        badVersion(obj)?.let { return fail(it) }
-        return Result.success(
-            InstantRequest(
-                requestId = obj.string("request_id") ?: return fail(DecodeError.MissingField("request_id")),
-                battleId = obj.long("battle_id") ?: return fail(DecodeError.MissingField("battle_id")),
-                roleId = obj.long("role_id") ?: return fail(DecodeError.MissingField("role_id")),
-                stateVersion = obj.long("state_version") ?: return fail(DecodeError.MissingField("state_version")),
-                op = obj.string("op") ?: return fail(DecodeError.MissingField("op")),
-            ),
-        )
-    }
-
-    fun encodeInstantAck(battleId: Long, stateVersion: Long, phase: String): JsonObject = buildJsonObject {
-        put("protocol_version", PROTOCOL_VERSION)
-        put("battle_id", battleId)
-        put("state_version", stateVersion)
-        put("phase", phase)
-    }
-
     // ---------------- 下行：BattleEventBatchEnvelope（MBE1）----------------
 
     /** `EventPayload` 的各成员（单键对象）。 */
@@ -223,53 +178,11 @@ object BattleCodec {
         put("accepted_action_seq", slot.acceptedActionSeq)
     }
 
-    /** 一批同 visibility、同接收者的事件。`batch_id` 取批内第一个 event_id。 */
-    fun encodeEventBatch(battleId: Long, events: List<MmoBattleEvent>): String {
-        require(events.isNotEmpty())
-        val first = events.first()
-        return buildJsonObject {
-            put("protocol_version", PROTOCOL_VERSION)
-            if (first.visibility == VISIBILITY_PUBLIC) put("topic", TOPIC_PUBLIC)
-            put("battle_id", battleId)
-            put("round", events.last().round)
-            put("visibility", first.visibility)
-            put("recipient_role_id", first.recipientRoleId)
-            put("batch_id", first.id)
-            put("chunk_index", 0)
-            put("chunk_count", 1)
-            put("first_stream_seq", first.streamSeq)
-            put("last_stream_seq", events.last().streamSeq)
-            put("events", JsonArray(events.map { encodeEvent(it) }))
-        }.toString()
-    }
-
-    fun encodeEvent(e: MmoBattleEvent): JsonObject = buildJsonObject {
-        put("event_id", e.id)
-        put("stream_seq", e.streamSeq)
-        put("resulting_state_version", e.stateVersion)
-        put("critical", e.critical == 1)
-        put("request_id", e.requestId)
-        put("server_time_ms", e.serverTimeMs)
-        put("default_action_applied", e.defaultActionApplied == 1)
-        put("auto_played", false)
-        put("control_state", "MANUAL")
-        put("payload", runCatching { Json.parseToJsonElement(e.payload) }.getOrDefault(JsonObject(emptyMap())))
-    }
-
     const val VISIBILITY_PUBLIC: String = "PUBLIC"
     const val VISIBILITY_PRIVATE: String = "PRIVATE"
 
     // ---------------- 内部 ----------------
 
-    private fun parse(bytes: ByteArray): JsonObject? =
-        runCatching { Json.parseToJsonElement(bytes.decodeToString()) as? JsonObject }.getOrNull()
-
-    private fun <T> fail(error: DecodeError): Result<T> = Result.failure(DecodeFailure(error))
-
-    private fun badVersion(obj: JsonObject): DecodeError? {
-        val v = obj["protocol_version"]?.jsonPrimitive?.intOrNull ?: return DecodeError.MissingField("protocol_version")
-        return if (v != PROTOCOL_VERSION) DecodeError.UnsupportedVersion(v) else null
-    }
 
     private fun JsonObject.long(name: String): Long? = this[name]?.jsonPrimitive?.let { it.longOrNull ?: it.content.toLongOrNull() }
     private fun JsonObject.int(name: String): Int? = this[name]?.jsonPrimitive?.intOrNull
