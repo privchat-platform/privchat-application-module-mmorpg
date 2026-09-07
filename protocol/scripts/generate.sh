@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 生成 Kotlin 与 C++ 绑定,并验证四个 root 的 identifier 都存在。
+# 生成 Kotlin 多平台绑定、二进制 schema(.bfbs)与 C++ 绑定,并验证每个 root 的 identifier 都存在。
 #
 # `root_type` / `file_identifier` 是**文件级**声明:同一 .fbs 里写多个 root
 # 只有最后一个生效,前面的静默丢失。因此每个 root 独立成文件、分别生成,
@@ -29,16 +29,25 @@ fi
 # 也不会因为参数写错而删掉调用者的目录。
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-mkdir -p "$TMP/cpp" "$TMP/kotlin"
+mkdir -p "$TMP/cpp" "$TMP/kotlin-kmp" "$TMP/bfbs"
 
-ROOTS=(scene_move_intent scene_move_ack scene_event scene_snapshot)
+ROOTS=(scene_move_intent scene_move_ack scene_event scene_snapshot
+       battle_command battle_command_ack battle_event battle_snapshot)
 for f in "${ROOTS[@]}"; do
+    # C++:fixture 工具与校验用;Godot 侧不消费它(用 .bfbs + 通用反射 codec)。
     flatc --cpp -o "$TMP/cpp" "$HERE/schemas/$f.fbs"
-    flatc --kotlin -o "$TMP/kotlin" "$HERE/schemas/$f.fbs"
+    # 二进制 schema:privchat-godot 的 PrivchatFlatBuffers 运行时加载
+    # (GODOT_FLATBUFFERS_CODEC_SPEC §2/§7)。
+    flatc --binary --schema -o "$TMP/bfbs" "$HERE/schemas/$f.fbs"
 done
+# Kotlin 多平台绑定(module-mmorpg 消费):--gen-all 把 *_common.fbs 的共享类型
+# 一起生成;`flatc --kotlin`(JVM 后端)在 Kotlin/Native 编不过,不再产出。
+KMP_INPUTS=()
+for f in "${ROOTS[@]}"; do KMP_INPUTS+=("$HERE/schemas/$f.fbs"); done
+flatc --kotlin-kmp --gen-all -o "$TMP/kotlin-kmp" "${KMP_INPUTS[@]}"
 
 echo "== 校验 file identifier =="
-declare -a EXPECT=("MMI1" "MMA1" "MSE1" "MSS1")
+declare -a EXPECT=("MMI1" "MMA1" "MSE1" "MSS1" "MBC1" "MBA1" "MBE1" "MBS1")
 fail=0
 for i in "${!ROOTS[@]}"; do
     f="${ROOTS[$i]}"; want="${EXPECT[$i]}"

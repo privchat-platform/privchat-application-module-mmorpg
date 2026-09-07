@@ -87,6 +87,20 @@ afterEvaluate {
     }
 }
 
+// FlatBuffers 生成物不进仓(protocol/.gitignore):编译前由 protocol/scripts/generate.sh
+// 现场产出 kotlin-kmp / bfbs / cpp。脚本自己钉 flatc 版本并跑语义校验。
+val generateProtocol by tasks.registering(Exec::class) {
+    description = "flatc: Kotlin KMP bindings, .bfbs and C++ from protocol/schemas"
+    workingDir = file("protocol")
+    commandLine("bash", "scripts/generate.sh")
+    inputs.dir("protocol/schemas")
+    inputs.dir("protocol/scripts")
+    outputs.dir("protocol/generated/kotlin-kmp")
+    outputs.dir("protocol/generated/bfbs")
+}
+tasks.matching { it.name.startsWith("compileKotlin") || it.name == "compileCommonMainKotlinMetadata" || it.name.startsWith("kspKotlin") }
+    .configureEach { dependsOn(generateProtocol) }
+
 tasks.matching { it.name == "compileCommonMainKotlinMetadata" }.configureEach {
     dependsOn("kspKotlinMacosArm64")
 }

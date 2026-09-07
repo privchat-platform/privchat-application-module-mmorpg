@@ -23,6 +23,11 @@ schemas/
   scene_move_ack.fbs      MoveIntentAck             MMA1
   scene_event.fbs         SceneEventBatchEnvelope   MSE1
   scene_snapshot.fbs      SceneSnapshotEnvelope     MSS1
+  battle_common.fbs       无 root:enum 与共享 table
+  battle_command.fbs      BattleCommandEnvelope     MBC1
+  battle_command_ack.fbs  BattleCommandAck          MBA1
+  battle_event.fbs        BattleEventBatchEnvelope  MBE1
+  battle_snapshot.fbs     BattleSnapshotEnvelope    MBS1
 ```
 
 ## 生成
@@ -31,15 +36,18 @@ schemas/
 ./scripts/generate.sh [输出目录]     # 默认 ./generated
 ```
 
-脚本逐个生成 C++ 与 Kotlin,并**断言四个 identifier 都存在** ——
-这条断言就是防止有人把 root 合并回一个文件。
+脚本生成 Kotlin 多平台绑定(`kotlin-kmp/`)、二进制 schema(`bfbs/`)与 C++
+(`cpp/`),并**断言每个 identifier 都存在** —— 这条断言就是防止有人把 root 合并回
+一个文件。生成物不进仓;Gradle 的 `generateProtocol` 任务在编译前调用本脚本,
+机器上必须有钉定版本的 `flatc`。
 
 ## 消费方
 
 | 生成物 | 去向 |
 |---|---|
-| Kotlin | `module-mmorpg` |
-| C++ | Menghuan 的**游戏专用** GDExtension(不进 privchat-godot) |
+| `kotlin-kmp/` | `module-mmorpg`(挂进 commonMain;运行时是 vendor 在 `runtime/` 的 flatbuffers-kotlin) |
+| `bfbs/` | privchat-godot 的通用反射 codec `PrivchatFlatBuffers`(GODOT_FLATBUFFERS_CODEC_SPEC),demo 以资源引用 |
+| `cpp/` | fixture 工具与校验;**不**进任何 GDExtension(不做游戏专属扩展) |
 
 ## 语义校验
 
