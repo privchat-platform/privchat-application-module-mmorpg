@@ -6,6 +6,7 @@ import logic.codec.BattleCodec
 import logic.codec.SceneHeartbeatCodec
 import logic.codec.SceneInteractCodec
 import logic.codec.SceneMoveCodec
+import logic.codec.SceneMoveFlatCodec
 import logic.scene.SceneOutcome
 import logic.scene.SceneService
 import neton.logging.Logger
@@ -87,7 +88,11 @@ class MmorpgTransferHandler(
     }
 
     private suspend fun move(ctx: PrivChatTransferContext): PrivChatTransferResult {
-        val intent = SceneMoveCodec.decodeIntent(ctx.body).getOrElse { failure ->
+        // 过渡期双格式(MMO_ARCHITECTURE_SPEC §10.7):FlatBuffers(MMI1)是正式格式,
+        // 按 identifier 识别并以 MMA1 应答;JSON 镜像仍可用,直到客户端全部切换。
+        val flat = SceneMoveFlatCodec.looksLikeIntent(ctx.body)
+        val decoded = if (flat) SceneMoveFlatCodec.decodeIntent(ctx.body) else SceneMoveCodec.decodeIntent(ctx.body)
+        val intent = decoded.getOrElse { failure ->
             val error = (failure as? SceneMoveCodec.DecodeFailure)?.error
             val code = when (error) {
                 is SceneMoveCodec.DecodeError.UnsupportedVersion -> MmoErrorCodes.SCENE_PROTOCOL_VERSION_UNSUPPORTED
@@ -99,7 +104,9 @@ class MmorpgTransferHandler(
         return when (val outcome = scenes.move(userId = ctx.userId, channelId = ctx.channelId, intent = intent)) {
             // 拒绝一律走外层 code、data 为空（spec §9.1）。
             is SceneOutcome.Failure -> PrivChatTransferResult.error(outcome.code, outcome.message)
-            is SceneOutcome.Success -> PrivChatTransferResult.ok(SceneMoveCodec.encodeAck(outcome.value))
+            is SceneOutcome.Success -> PrivChatTransferResult.ok(
+                if (flat) SceneMoveFlatCodec.encodeAck(outcome.value) else SceneMoveCodec.encodeAck(outcome.value),
+            )
         }
     }
 

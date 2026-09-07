@@ -1,0 +1,14 @@
+{
+  "protocol_version": 1,
+  "scene_session_id": 8,
+  "request_id": "gd-fb-3985",
+  "movement_seq": 1,
+  "command_type": "MoveTo",
+  "command": {
+    "target_position": {
+      "x": 60000,
+      "y": 40000
+    }
+  },
+  "client_time_ms": 1788774187213
+}
