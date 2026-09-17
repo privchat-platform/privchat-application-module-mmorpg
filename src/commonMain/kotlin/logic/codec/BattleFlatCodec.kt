@@ -152,6 +152,7 @@ object BattleFlatCodec {
         val version = r.protocolVersion.toInt()
         if (version != BattleCodec.PROTOCOL_VERSION) throw BattleCodec.DecodeFailure(BattleCodec.DecodeError.UnsupportedVersion(version))
         val requestId = r.requestId?.takeIf { it.isNotEmpty() } ?: throw BattleCodec.DecodeFailure(BattleCodec.DecodeError.MissingField("request_id"))
+        if (requestId.encodeToByteArray().size > BattleCodec.MAX_REQUEST_ID_BYTES) throw BattleCodec.DecodeFailure(BattleCodec.DecodeError.TooLarge("request_id")) // V-BQ1
         val op = if (r.op == InstantOp.Surrender) BattleCodec.OP_SURRENDER else "UNKNOWN_${r.op.value}"
         BattleCodec.InstantRequest(requestId, r.battleId.toLong(), r.roleId.toLong(), r.stateVersion.toLong(), op)
     }.recoverCatching { e -> if (e is BattleCodec.DecodeFailure) throw e else throw BattleCodec.DecodeFailure(BattleCodec.DecodeError.NotAnObject) }
@@ -177,8 +178,11 @@ object BattleFlatCodec {
      * 把 outbox 里同 visibility / 同接收者的事件编成一批。payload 是 JSON 单键对象
      * (与 [BattleCodec] 的镜像同名),这里逐个落成 `EventPayload` union。
      */
-    fun encodeEventBatch(battleId: Long, events: List<MmoBattleEvent>): ByteArray {
-        require(events.isNotEmpty())
+    const val MAX_EVENTS_PER_BATCH: Int = 128
+
+    fun encodeEventBatch(battleId: Long, events: List<MmoBattleEvent>, chunkIndex: Int = 0, chunkCount: Int = 1): ByteArray {
+        require(events.isNotEmpty() && events.size <= MAX_EVENTS_PER_BATCH) { "batch size ${events.size} (V-BE5)" }
+        require(chunkIndex in 0 until chunkCount)
         val b = FlatBufferBuilder(1024)
         val offsets = events.map { e ->
             val obj = Json.parseToJsonElement(e.payload).jsonObject
@@ -244,8 +248,8 @@ object BattleFlatCodec {
         BattleEventBatchEnvelope.addVisibility(b, if (first.visibility == BattleCodec.VISIBILITY_PUBLIC) Visibility.Public else Visibility.Private)
         BattleEventBatchEnvelope.addRecipientRoleId(b, first.recipientRoleId.toULong())
         BattleEventBatchEnvelope.addBatchId(b, first.id.toULong())
-        BattleEventBatchEnvelope.addChunkIndex(b, 0u)
-        BattleEventBatchEnvelope.addChunkCount(b, 1u)
+        BattleEventBatchEnvelope.addChunkIndex(b, chunkIndex.toUShort())
+        BattleEventBatchEnvelope.addChunkCount(b, chunkCount.toUShort())
         BattleEventBatchEnvelope.addFirstStreamSeq(b, first.streamSeq.toULong())
         BattleEventBatchEnvelope.addLastStreamSeq(b, events.last().streamSeq.toULong())
         BattleEventBatchEnvelope.addEvents(b, vec)

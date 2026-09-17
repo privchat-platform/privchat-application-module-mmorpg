@@ -16,7 +16,7 @@ import model.MmoBattleTransition
 import model.MmoRewardSettlement
 
 /** 内存版战斗仓储。全部覆写，基类的 Table 一次都不会被触碰。 */
-class FakeBattleRepository : BattleRepository(NoopLogger) {
+open class FakeBattleRepository : BattleRepository(NoopLogger) {
     val battles = mutableMapOf<Long, MmoBattle>()
     val transitions = mutableMapOf<Long, MmoBattleTransition>()
     val actors = mutableMapOf<Long, MmoBattleActor>()
@@ -33,7 +33,16 @@ class FakeBattleRepository : BattleRepository(NoopLogger) {
     override suspend fun updateBattle(battle: MmoBattle) { battles[battle.id] = battle }
     override suspend fun listDue(nowMs: Long, limit: Int) =
         battles.values.filter { (it.phase == "COMMAND" || it.phase == "SETTLE") && it.deadlineAtMs <= nowMs }.sortedBy { it.deadlineAtMs }.take(limit)
-    override suspend fun listOpen(limit: Int) = battles.values.filter { it.phase != "CLOSED" }.sortedBy { it.id }.take(limit)
+    override suspend fun updateBattleIfVersion(battle: MmoBattle, expectedStateVersion: Long): Boolean {
+        val current = battles[battle.id] ?: return false
+        if (current.stateVersion != expectedStateVersion) return false
+        battles[battle.id] = battle
+        return true
+    }
+    override suspend fun listBattleIdsWithPending(limit: Int) =
+        events.values.filter { it.publishedAt == 0L }.map { it.battleId }.distinct().sorted().take(limit)
+    override suspend fun listStaleCreated(olderThanMs: Long, limit: Int) =
+        battles.values.filter { it.phase == "CREATED" && (it.createdAt ?: Long.MAX_VALUE) <= olderThanMs }.sortedBy { it.id }.take(limit)
 
     override suspend fun insertTransition(t: MmoBattleTransition) = t.copy(id = id()).also { transitions[it.id] = it }
     override suspend fun getTransition(id: Long) = transitions[id]

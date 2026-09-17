@@ -73,6 +73,7 @@ object MmorpgRuntimeBootstrap {
             sequencer = sequencer,
             rooms = rooms,
             maps = maps,
+            tx = DbBattleTransactor(),
         )
         ctx.bind(SceneService::class, scenes)
 

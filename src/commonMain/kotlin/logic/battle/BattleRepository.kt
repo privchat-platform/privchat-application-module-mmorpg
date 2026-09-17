@@ -8,6 +8,7 @@ import model.MmoBattleLease
 import model.MmoBattleSlot
 import model.MmoBattleTransition
 import model.MmoRewardSettlement
+import neton.database.dbContext
 import neton.database.dsl.*
 import neton.logging.Logger
 import table.MmoBattleActorTable
@@ -31,6 +32,32 @@ open class BattleRepository(
     open suspend fun getBattle(id: Long): MmoBattle? = MmoBattleTable.get(id)
     open suspend fun updateBattle(battle: MmoBattle) { MmoBattleTable.update(battle) }
 
+    /**
+     * 乐观锁写回:只有当行上的 `state_version` 仍是调用方读到的那个值时才写。
+     * 每次提交都至少 emit 一个事件、`state_version` 严格递增,所以它就是版本列。
+     * 返回 false = 别人先提交了(调度器 vs 提交路径),调用方必须放弃本次结算而不是覆盖。
+     */
+    open suspend fun updateBattleIfVersion(battle: MmoBattle, expectedStateVersion: Long): Boolean {
+        val affected = dbContext().execute(
+            """
+            UPDATE mmo_battle SET
+                channel_id = :channelId, phase = :phase, round_no = :round, phase_version = :phaseVersion,
+                state_version = :stateVersion, public_event_seq = :publicSeq, private_event_seq = :privateSeq,
+                rng_cursor = :rngCursor, winner_side = :winnerSide, deadline_at_ms = :deadline,
+                initiative_order = :initiative, updated_at = :updatedAt
+            WHERE id = :id AND state_version = :expected
+            """.trimIndent(),
+            mapOf(
+                "channelId" to battle.channelId, "phase" to battle.phase, "round" to battle.round, "phaseVersion" to battle.phaseVersion,
+                "stateVersion" to battle.stateVersion, "publicSeq" to battle.publicEventSeq, "privateSeq" to battle.privateEventSeq,
+                "rngCursor" to battle.rngCursor, "winnerSide" to battle.winnerSide, "deadline" to battle.deadlineAtMs,
+                "initiative" to battle.initiativeOrder, "updatedAt" to kotlin.time.Clock.System.now().toEpochMilliseconds(),
+                "id" to battle.id, "expected" to expectedStateVersion,
+            ),
+        )
+        return affected == 1L
+    }
+
     /** 到期要推进的战斗：COMMAND 截止、SETTLE 宽限结束。 */
     open suspend fun listDue(nowMs: Long, limit: Int = 100): List<MmoBattle> =
         MmoBattleTable.query {
@@ -44,10 +71,20 @@ open class BattleRepository(
             limitOffset(limit, 0)
         }.list()
 
-    /** 未 CLOSED 的战斗；调度器用来补投 outbox。 */
-    open suspend fun listOpen(limit: Int = 200): List<MmoBattle> =
+    /**
+     * 有待投递事件的战斗 id。调度器只补投这些,而不是每 500ms 扫一遍所有未关闭的战斗:
+     * 稳态下 outbox 是空的,原来那种"2×N 次空查询"纯属浪费。
+     */
+    open suspend fun listBattleIdsWithPending(limit: Int = 200): List<Long> =
+        dbContext().fetchAll(
+            "SELECT DISTINCT battle_id FROM mmo_battle_event WHERE published_at = 0 ORDER BY battle_id LIMIT :limit",
+            mapOf("limit" to limit),
+        ).map { it.long("battle_id") }
+
+    /** 卡在 CREATED 的僵尸(第二段事务失败又没走补偿),超过 [olderThanMs] 就该关掉。 */
+    open suspend fun listStaleCreated(olderThanMs: Long, limit: Int = 50): List<MmoBattle> =
         MmoBattleTable.query {
-            where { MmoBattle::phase `in` BattlePhase.entries.filter { it != BattlePhase.CLOSED }.map { it.name } }
+            where { and(MmoBattle::phase eq BattlePhase.CREATED.name, MmoBattle::createdAt le olderThanMs) }
             orderBy(MmoBattle::id.asc())
             limitOffset(limit, 0)
         }.list()

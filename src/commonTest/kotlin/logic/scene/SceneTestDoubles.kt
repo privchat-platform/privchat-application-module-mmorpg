@@ -82,22 +82,32 @@ class FakeSessionRepository : MmoSceneSessionRepository(NoopLogger) {
     }
 
     override suspend fun close(session: MmoSceneSession, nowMs: Long): MmoSceneSession? {
-        if (session.status != 1) return null
-        val closed = session.copy(status = 0, lastSeenAt = nowMs)
+        val current = rows[session.id] ?: return null
+        if (current.status != 1) return null
+        val closed = current.copy(status = 0, lastSeenAt = nowMs)
         rows[closed.id] = closed
         return closed
     }
 
     override suspend fun touch(session: MmoSceneSession, nowMs: Long) {
-        rows[session.id] = session.copy(lastSeenAt = nowMs)
+        rows[session.id] = (rows[session.id] ?: session).copy(lastSeenAt = nowMs)
     }
 
-    override suspend fun updateMovement(session: MmoSceneSession) {
-        rows[session.id] = session
+    override suspend fun updateMovement(session: MmoSceneSession): Boolean {
+        val current = rows[session.id] ?: return false
+        if (current.status != 1 || current.movementSeq >= session.movementSeq) return false
+        // 只写移动相关列,与真实仓储一致(状态列不动)。
+        rows[session.id] = current.copy(
+            movementSeq = session.movementSeq, entityVersion = session.entityVersion, pathId = session.pathId,
+            startX = session.startX, startY = session.startY, targetX = session.targetX, targetY = session.targetY,
+            pathPoints = session.pathPoints, pathStartMs = session.pathStartMs, speed = session.speed, lastSeenAt = session.lastSeenAt,
+        )
+        return true
     }
 
     override suspend fun updateState(session: MmoSceneSession, state: String): MmoSceneSession {
-        val updated = session.copy(state = state)
+        val current = rows[session.id] ?: session
+        val updated = current.copy(state = state)
         rows[session.id] = updated
         return updated
     }

@@ -31,6 +31,7 @@ object SceneFlatCodec {
     const val IDENT_INTERACT: String = "MIR1"
     const val IDENT_EVENT_BATCH: String = "MSE1"
     const val MAX_BYTES: Int = 64 * 1024
+    const val MAX_EVENTS_PER_BATCH: Int = 128
 
     /** FlatBuffers 布局:root offset 后紧跟 4 字节 identifier。 */
     fun identifierOf(bytes: ByteArray): String? =
@@ -121,12 +122,15 @@ object SceneFlatCodec {
             override val seq: Long, val entityId: Long, val movementSeq: Long, val entityVersion: Long, val pathId: Long,
             val start: Vec2Fixed, val pathPoints: List<Vec2Fixed>, val startTimeMs: Long, val speed: Int, val navigationVersion: Int,
         ) : Event
+        /** 高版本 schema 发来的未知分支:保留事件头与 discriminator,不解释载荷(GODOT_FLATBUFFERS_CODEC_SPEC §3.4.1)。 */
+        data class Unknown(override val seq: Long, val payloadType: Int, val critical: Boolean) : Event
     }
 
     /** 一个 PUBLIC 批次:AOI 未实装期间 MovementStarted 与 RolePresence 都走 PUBLIC(VALIDATION V-E2 过渡)。 */
     fun encodePublicBatch(sceneRef: SceneRef, events: List<Event>, serverTimeMs: Long): ByteArray {
         require(events.isNotEmpty())
         val b = FlatBufferBuilder(512)
+        require(events.size <= MAX_EVENTS_PER_BATCH) { "batch size ${events.size} (V-E8)" }
         val eventOffsets = events.map { e ->
             val (type, union) = when (e) {
                 is Event.Presence -> {
@@ -154,6 +158,7 @@ object SceneFlatCodec {
                     MovementStarted.addNavigationVersion(b, e.navigationVersion.toUInt())
                     SceneEventPayload.MovementStarted to MovementStarted.endMovementStarted(b).value
                 }
+                is Event.Unknown -> error("cannot encode an unknown event")
             }
             SceneEvent.startSceneEvent(b)
             SceneEvent.addEventId(b, e.seq.toULong())
@@ -211,7 +216,7 @@ object SceneFlatCodec {
                         m.startTimeMs.toLong(), m.speed, m.navigationVersion.toInt(),
                     )
                 }
-                else -> error("unsupported payload ${ev.payloadType}")
+                else -> Event.Unknown(ev.streamSeq.toLong(), ev.payloadType.value.toInt(), ev.critical)
             }
         }
         PublicBatch(sceneRef, env.firstStreamSeq.toLong(), env.lastStreamSeq.toLong(), events)

@@ -149,7 +149,33 @@ class BattleService(
 
     // ---------------- 指令提交（§4.3 / V-BC*）----------------
 
+    /**
+     * 提交指令。两种并发都由数据库裁决,服务层只负责把裁决结果翻译成协议语义:
+     * - 与调度器撞车(同一 `state_version` 各自结算)→ [BattleConflict] → 重读重来一次;
+     * - 同 `request_id` 并发重试撞唯一索引 → 事务回滚后按 §4.3 回放首次 ACK。
+     */
     suspend fun submit(userId: Long, channelId: Long, env: BattleCodec.CommandEnvelope): SceneOutcome<BattleCodec.Ack> {
+        repeat(2) { attempt ->
+            try {
+                return submitOnce(userId, channelId, env)
+            } catch (e: BattleConflict) {
+                log.info("mmo.battle.submit.conflict battle_id=${env.battleId} attempt=$attempt")
+            } catch (e: Throwable) {
+                if (!isUniqueViolation(e)) throw e
+                val seen = repo.findCommandByRequest(env.battleId, env.requestId)
+                    ?: return SceneOutcome.Failure(MmoErrorCodes.BATTLE_ACTION_SEQ_REUSE, "action_seq ${env.actionSeq} was already used")
+                return if (seen.payload == env.payloadJson && seen.actorId == env.actorId) {
+                    BattleCodec.decodeAck(seen.ack)?.let { SceneOutcome.Success(it) }
+                        ?: SceneOutcome.Failure(MmoErrorCodes.BATTLE_COMMAND_REJECTED, "stored ack for '${env.requestId}' is unreadable")
+                } else {
+                    SceneOutcome.Failure(MmoErrorCodes.BATTLE_IDEMPOTENCY_KEY_REUSE, "request_id '${env.requestId}' was already used with a different payload")
+                }
+            }
+        }
+        return SceneOutcome.Failure(MmoErrorCodes.BATTLE_STATE_VERSION_CONFLICT, "battle ${env.battleId} is being resolved; retry")
+    }
+
+    private suspend fun submitOnce(userId: Long, channelId: Long, env: BattleCodec.CommandEnvelope): SceneOutcome<BattleCodec.Ack> {
         val battle = repo.getBattle(env.battleId)
         if (battle == null || battle.phase == BattlePhase.CLOSED.name || battle.channelId != channelId) {
             return SceneOutcome.Failure(MmoErrorCodes.BATTLE_NOT_FOUND, "battle ${env.battleId} is not open on channel $channelId")
@@ -209,16 +235,22 @@ class BattleService(
             phaseVersion = battle.phaseVersion, slotDeadlineAtMs = slot.deadlineAtMs,
         )
         tx.run {
-            repo.updateSlot(slot.copy(acceptedActionSeq = env.actionSeq, payload = env.payloadJson))
+            // 事务内重读:上面的校验用的是事务外的快照,调度器可能已经把这一回合结算掉了。
+            // commit 时的乐观锁是最后防线;这里先廉价地拦掉明显过期的提交。
+            val fresh = repo.getBattle(battle.id) ?: throw BattleConflict()
+            if (fresh.stateVersion != battle.stateVersion) throw BattleConflict()
+            val freshSlot = repo.getSlot(slot.id) ?: throw BattleConflict()
+            if (freshSlot.acceptedActionSeq >= env.actionSeq) throw BattleConflict()
+            repo.updateSlot(freshSlot.copy(acceptedActionSeq = env.actionSeq, payload = env.payloadJson))
             repo.insertCommand(
                 MmoBattleCommand(
                     battleId = battle.id, actorId = actor.id, actionSeq = env.actionSeq, requestId = env.requestId,
                     commandSlotId = slot.id, payload = env.payloadJson, ack = BattleCodec.encodeAck(ack).toString(),
                 ),
             )
-            val live = Live(battle, actors.toMutableList())
+            val live = Live(fresh, repo.listActors(battle.id).toMutableList())
             live.emitPrivate(env.roleId, BattleCodec.commandAccepted(slot.id, env.actionSeq), now, requestId = env.requestId)
-            // 全员提交即提前结算，不等截止。
+            // 全员提交即提前结算,不等截止。
             val slots = repo.listSlots(battle.id, battle.round)
             if (slots.all { it.isRequired == 0 || it.acceptedActionSeq > 0 }) resolveRound(live, now)
             commit(live)
@@ -244,11 +276,17 @@ class BattleService(
         if (req.op != BattleCodec.OP_SURRENDER) return SceneOutcome.Failure(MmoErrorCodes.BATTLE_COMMAND_REJECTED, "unknown instant op '${req.op}'")
         if (battle.phase != BattlePhase.COMMAND.name) return SceneOutcome.Failure(MmoErrorCodes.BATTLE_PHASE_MISMATCH, "cannot surrender in ${battle.phase}")
         val now = nowMs()
-        val closedVersion = tx.run {
-            val live = Live(battle, repo.listActors(battle.id).toMutableList())
-            settle(live, BattleOutcome.MONSTER_WIN, now)
-            commit(live)
-            live.battle.stateVersion
+        val closedVersion = try {
+            tx.run {
+                val fresh = repo.getBattle(battle.id) ?: throw BattleConflict()
+                if (fresh.stateVersion != req.stateVersion) throw BattleConflict()
+                val live = Live(fresh, repo.listActors(battle.id).toMutableList())
+                settle(live, BattleOutcome.MONSTER_WIN, now)
+                commit(live)
+                live.battle.stateVersion
+            }
+        } catch (e: BattleConflict) {
+            return SceneOutcome.Failure(MmoErrorCodes.BATTLE_STATE_VERSION_CONFLICT, "state_version ${req.stateVersion} is no longer current")
         }
         flush(battle.id)
         return SceneOutcome.Success(InstantResult(battle.id, closedVersion, BattlePhase.SETTLE.name))
@@ -260,10 +298,17 @@ class BattleService(
         if (battle == null || battle.phase == BattlePhase.CLOSED.name) return SceneOutcome.Failure(MmoErrorCodes.BATTLE_NOT_FOUND, "battle $battleId is not open")
         if (battle.phase == BattlePhase.SETTLE.name) return SceneOutcome.Success(Unit)
         val now = nowMs()
-        tx.run {
-            val live = Live(battle, repo.listActors(battle.id).toMutableList())
-            settle(live, BattleOutcome.ESCAPED, now)
-            commit(live)
+        try {
+            tx.run {
+                val fresh = repo.getBattle(battleId) ?: throw BattleConflict()
+                if (fresh.phase == BattlePhase.SETTLE.name || fresh.phase == BattlePhase.CLOSED.name) return@run
+                val live = Live(fresh, repo.listActors(battleId).toMutableList())
+                settle(live, BattleOutcome.ESCAPED, now)
+                commit(live)
+            }
+        } catch (e: BattleConflict) {
+            // 与结算撞车:对方已经在收尾,中止的目的达到了。
+            log.info("mmo.battle.abort.raced battle_id=$battleId")
         }
         flush(battleId)
         log.info("mmo.battle.aborted battle_id=$battleId reason=$reason")
@@ -287,13 +332,31 @@ class BattleService(
                         BattlePhase.SETTLE.name -> close(live, now)
                     }
                     commit(live)
-                    advanced += 1
                 }
+                advanced += 1
                 flush(due.id)
-            }.onFailure { log.warn("mmo.battle.tick.failed battle_id=${due.id} err=${it.message}") }
+            }.onFailure {
+                if (it is BattleConflict) log.info("mmo.battle.tick.raced battle_id=${due.id}")
+                else log.warn("mmo.battle.tick.failed battle_id=${due.id} err=${it.message}")
+            }
         }
-        // 上次投递失败的事件在这里补投。
-        for (open in repo.listOpen()) runCatching { flush(open.id) }
+        // 上次投递失败的事件在这里补投——只看真有待投递事件的战斗。
+        for (battleId in repo.listBattleIdsWithPending()) runCatching { flush(battleId) }
+        // 卡在 CREATED 的僵尸(第二段事务失败且补偿也没跑成):关掉并把会话放回 ACTIVE,
+        // 否则它既不会到期也不会关闭。
+        for (zombie in repo.listStaleCreated(olderThanMs = now - CREATED_GRACE_MS)) {
+            runCatching {
+                tx.run {
+                    val live = Live(zombie, mutableListOf())
+                    live.battle = live.battle.copy(phase = BattlePhase.CLOSED.name, winnerSide = 2, phaseVersion = live.battle.phaseVersion + 1)
+                    live.battle = live.battle.copy(stateVersion = live.battle.stateVersion + 1)
+                    commit(live)
+                    sessions.findById(zombie.sceneSessionId)?.takeIf { it.status == 1 && it.state != SceneSessionState.ACTIVE }
+                        ?.let { sessions.updateState(it, SceneSessionState.ACTIVE) }
+                }
+                log.warn("mmo.battle.zombie.closed battle_id=${zombie.id}")
+            }
+        }
         return advanced
     }
 
@@ -320,15 +383,28 @@ class BattleService(
     // ---------------- 内部：状态机 ----------------
 
     /** 一次事务内的工作集：战斗头 + 单位 + 待落库事件。序号在内存里推进，commit 时一并写回。 */
+    /**
+     * 一次事务内的工作集:战斗头 + 单位 + 待落库事件。`expectedVersion` 是读到它时的
+     * `state_version`,commit 用它做乐观锁;`originalActors` 让 commit 只写真变了的单位。
+     */
     private class Live(var battle: MmoBattle, val actors: MutableList<MmoBattleActor>) {
         val pending = mutableListOf<MmoBattleEvent>()
+        val expectedVersion: Long = battle.stateVersion
+        val originalActors: List<MmoBattleActor> = actors.toList()
     }
+
+    /**
+     * 哪些事件是"跳过就会错"的(BATTLE §2.3):阶段变化、结算、行动机会、受理确认——
+     * 客户端漏了它们就没法继续;伤害/倒下/先手只是结算过程的展示,漏了拉一次 snapshot 就齐。
+     */
+    private fun isCritical(payload: JsonObject): Boolean = payload.keys.firstOrNull() in CRITICAL_PAYLOADS
 
     private fun Live.emitPublic(payload: JsonObject, now: Long, defaultApplied: Boolean = false) {
         battle = battle.copy(publicEventSeq = battle.publicEventSeq + 1, stateVersion = battle.stateVersion + 1)
         pending += MmoBattleEvent(
             battleId = battle.id, round = battle.round, visibility = BattleCodec.VISIBILITY_PUBLIC, streamSeq = battle.publicEventSeq,
-            stateVersion = battle.stateVersion, defaultActionApplied = if (defaultApplied) 1 else 0, serverTimeMs = now, payload = payload.toString(),
+            stateVersion = battle.stateVersion, critical = if (isCritical(payload)) 1 else 0,
+            defaultActionApplied = if (defaultApplied) 1 else 0, serverTimeMs = now, payload = payload.toString(),
         )
     }
 
@@ -336,7 +412,8 @@ class BattleService(
         battle = battle.copy(privateEventSeq = battle.privateEventSeq + 1, stateVersion = battle.stateVersion + 1)
         pending += MmoBattleEvent(
             battleId = battle.id, round = battle.round, visibility = BattleCodec.VISIBILITY_PRIVATE, recipientRoleId = roleId,
-            streamSeq = battle.privateEventSeq, stateVersion = battle.stateVersion, requestId = requestId, serverTimeMs = now, payload = payload.toString(),
+            streamSeq = battle.privateEventSeq, stateVersion = battle.stateVersion, critical = if (isCritical(payload)) 1 else 0,
+            requestId = requestId, serverTimeMs = now, payload = payload.toString(),
         )
     }
 
@@ -417,9 +494,11 @@ class BattleService(
             ?.let { sessions.updateState(it, SceneSessionState.ACTIVE) }
     }
 
+    /** 乐观锁提交:版本不对就抛 [BattleConflict],事务回滚,调用方决定重试还是放弃。 */
     private suspend fun commit(live: Live) {
-        repo.updateBattle(live.battle)
-        for (actor in live.actors) repo.updateActor(actor)
+        if (!repo.updateBattleIfVersion(live.battle, live.expectedVersion)) throw BattleConflict()
+        val before = live.originalActors.associateBy { it.id }
+        for (actor in live.actors) if (before[actor.id] != actor) repo.updateActor(actor)
         for (event in live.pending) repo.insertEvent(event)
         live.pending.clear()
     }
@@ -431,21 +510,38 @@ class BattleService(
         val pending = repo.listUnpublished(battleId)
         if (pending.isEmpty()) return
         val now = nowMs()
-        for ((key, events) in pending.groupBy { it.visibility to it.recipientRoleId }) {
+        for ((key, group) in pending.groupBy { it.visibility to it.recipientRoleId }) {
             val (visibility, recipient) = key
-            // 正式线格式 MBE1(ARCH §10.6);outbox 里的 JSON 单键载荷在编码器里落成 union。
-            val payload = BattleFlatCodec.encodeEventBatch(battleId, events)
-            val sent = runCatching {
-                if (visibility == BattleCodec.VISIBILITY_PUBLIC) {
-                    rooms.broadcastBytes(battle.channelId, payload)
-                } else {
-                    val userId = roles.findById(recipient)?.userId ?: error("recipient role $recipient is gone")
-                    rooms.sendTransferBytes(battle.channelId, userId, ROUTE_BATTLE_EVENT, uuidV4(), payload)
+            // 一批 ≤ 128 条(V-BE5);积压多了拆成多个 chunk,同一 batch_id。
+            val chunks = group.chunked(BattleFlatCodec.MAX_EVENTS_PER_BATCH)
+            for ((index, events) in chunks.withIndex()) {
+                // 正式线格式 MBE1(ARCH §10.6);outbox 里的 JSON 单键载荷在编码器里落成 union。
+                // 编码放在 runCatching 里:一条坏载荷不能把整个 flush 炸出 handler,更不能
+                // 让这场战斗此后永远发不出事件——编不出来的那批记错并标记为已投递(丢弃),
+                // 客户端靠 stream_seq 漏号发现并拉 snapshot。
+                val payload = runCatching { BattleFlatCodec.encodeEventBatch(battleId, events, index, chunks.size) }.getOrElse { e ->
+                    log.error("mmo.battle.encode_failed battle_id=$battleId visibility=$visibility ids=${events.map { it.id }} err=${e.message}")
+                    for (ev in events) repo.markPublished(ev, now)
+                    continue
                 }
+                val sent = runCatching {
+                    if (visibility == BattleCodec.VISIBILITY_PUBLIC) {
+                        rooms.broadcastBytes(battle.channelId, payload)
+                    } else {
+                        val userId = roles.findById(recipient)?.userId ?: error("recipient role $recipient is gone")
+                        rooms.sendTransferBytes(battle.channelId, userId, ROUTE_BATTLE_EVENT, uuidV4(), payload)
+                    }
+                }
+                sent.onSuccess { for (e in events) repo.markPublished(e, now) }
+                    .onFailure { log.warn("mmo.battle.publish_failed battle_id=$battleId visibility=$visibility recipient=$recipient err=${it.message}") }
             }
-            sent.onSuccess { for (e in events) repo.markPublished(e, now) }
-                .onFailure { log.warn("mmo.battle.publish_failed battle_id=$battleId visibility=$visibility recipient=$recipient err=${it.message}") }
         }
+    }
+
+    /** 数据库唯一约束冲突:sqlx4k 把 PostgreSQL 的 23505 带在消息里。 */
+    private fun isUniqueViolation(e: Throwable): Boolean {
+        val m = e.message ?: return false
+        return "23505" in m || "duplicate key" in m || "UNIQUE constraint" in m
     }
 
     private fun allowedOf(slot: MmoBattleSlot): Set<String> =
@@ -478,8 +574,13 @@ class BattleService(
         const val TRANSITION_READY: String = "READY"
         const val TRANSITION_FAILED: String = "FAILED"
 
-        /** PRIVATE 事件的定向 transfer route（§15.1）。 */
+        /** PRIVATE 事件的定向 transfer route(§15.1)。 */
         const val ROUTE_BATTLE_EVENT: String = "mmorpg/battle/event"
+
+        /** CREATED 超过这么久还没进 COMMAND 的战斗视为僵尸。 */
+        const val CREATED_GRACE_MS: Long = 60_000
+
+        val CRITICAL_PAYLOADS: Set<String> = setOf("phase_changed", "battle_settled", "slots_offered", "command_accepted")
     }
 }
 
@@ -501,3 +602,6 @@ data class BattleSnapshot(
     val recipientRoleId: Long,
     val openSlots: List<MmoBattleSlot>,
 )
+
+/** 乐观锁失败:同一场战斗被另一条路径先提交了。 */
+class BattleConflict : RuntimeException("battle was modified concurrently")

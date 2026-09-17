@@ -37,6 +37,7 @@ class SceneService(
     private val maps: MapRepository,
     private val clock: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val idempotency: SceneMoveIdempotency = SceneMoveIdempotency(),
+    private val tx: logic.battle.BattleTransactor = logic.battle.DirectBattleTransactor,
 ) {
 
     // ---------------- 进入场景 ----------------
@@ -97,8 +98,30 @@ class SceneService(
             )
         }
         var nextEpoch = 1L
+        if (previous != null && previous.sceneRef == sceneRef.encode()) nextEpoch = previous.sessionEpoch + 1
+        // 关旧开新必须同事务(评审 2026-09-18):否则双击 enter / 超时重试会留下两条在场会话,
+        // 或者进程在两步之间死掉留下零条。`idx_mmo_scene_session_active_role` 兜底:并发的
+        // 第二个 enter 撞唯一索引,整个事务回滚,返回 21601 让客户端重试。
+        val session = try {
+            tx.run {
+                if (previous != null) sessions.close(previous, now)
+                sessions.open(
+                    roleId = roleId,
+                    sceneRef = sceneRef.encode(),
+                    channelId = channelId,
+                    sessionEpoch = nextEpoch,
+                    nowMs = now,
+                    spawn = map.spawn,
+                )
+            }
+        } catch (e: Throwable) {
+            val m = e.message ?: ""
+            if ("23505" in m || "duplicate key" in m) {
+                return SceneOutcome.Failure(MmoErrorCodes.SCENE_SESSION_INVALID, "role $roleId is entering concurrently; retry")
+            }
+            throw e
+        }
         if (previous != null) {
-            sessions.close(previous, now)
             broadcastPresence(
                 ScenePublicEventCodec.EVENT_ROLE_LEFT,
                 previous.sceneRef,
@@ -106,18 +129,7 @@ class SceneService(
                 role,
                 now,
             )
-            if (previous.sceneRef == sceneRef.encode()) nextEpoch = previous.sessionEpoch + 1
         }
-
-        val session = sessions.open(
-            roleId = roleId,
-            sceneRef = sceneRef.encode(),
-            channelId = channelId,
-            sessionEpoch = nextEpoch,
-            nowMs = now,
-            spawn = map.spawn,
-        )
-
         broadcastPresence(
             ScenePublicEventCodec.EVENT_ROLE_ENTERED,
             sceneRef.encode(),
@@ -256,16 +268,17 @@ class SceneService(
             return notControllable(userId, session.roleId)
         }
         val now = nowMs()
-
-        if (session.state != SceneSessionState.ACTIVE) {
-            return SceneOutcome.Failure(MmoErrorCodes.SCENE_STATE_NOT_ALLOWED, "session ${session.id} is ${session.state}; movement is not allowed")
-        }
+        // 幂等命中必须早于一切状态判定(VALIDATION §V-I5 的顺序契约):会话刚转
+        // BATTLE_ENTERING 时,已受理那条移动的合法重试要回放首次 ACK,而不是 21613。
         when (val hit = idempotency.lookup(session.id, intent, now)) {
             is SceneMoveIdempotency.Lookup.Replay -> return SceneOutcome.Success(hit.ack)
             SceneMoveIdempotency.Lookup.Conflict -> return SceneOutcome.Failure(
                 MmoErrorCodes.SCENE_IDEMPOTENCY_KEY_REUSE, "request_id '${intent.requestId}' was already used with a different intent",
             )
             SceneMoveIdempotency.Lookup.Miss -> Unit
+        }
+        if (session.state != SceneSessionState.ACTIVE) {
+            return SceneOutcome.Failure(MmoErrorCodes.SCENE_STATE_NOT_ALLOWED, "session ${session.id} is ${session.state}; movement is not allowed")
         }
         if (intent.movementSeq <= session.movementSeq) {
             return SceneOutcome.Failure(
@@ -300,7 +313,10 @@ class SceneService(
             speed = if (moving) SceneMap.WALK_SPEED else 0,
             lastSeenAt = now,
         )
-        sessions.updateMovement(updated)
+        if (!sessions.updateMovement(updated)) {
+            // 数据库裁决输了:另一条更高序号的移动已经落库(并发通过了上面的比较)。
+            return SceneOutcome.Failure(MmoErrorCodes.SCENE_MOVEMENT_SEQ_STALE, "movement_seq ${intent.movementSeq} lost a concurrent update")
+        }
         val ack = SceneMoveCodec.Ack(
             sceneSessionId = session.id,
             requestId = intent.requestId,
@@ -314,7 +330,7 @@ class SceneService(
         val seq = sequencer.next(session.sceneRef)
         // 正式线格式 MSE1(ARCH §10.6);AOI 未实装期间 MovementStarted 走 PUBLIC(V-E2 过渡)。
         val payload = SceneFlatCodec.encodePublicBatch(
-            sceneRef = SceneRef.parse(session.sceneRef)!!,
+            sceneRef = SceneRef.parse(session.sceneRef) ?: return SceneOutcome.Failure(MmoErrorCodes.SCENE_NOT_FOUND, "session ${session.id} has a malformed scene_ref"),
             events = listOf(
                 SceneFlatCodec.Event.Movement(
                     seq = seq, entityId = role.id, movementSeq = updated.movementSeq, entityVersion = updated.entityVersion, pathId = updated.pathId,
@@ -482,8 +498,8 @@ class SceneService(
         nowMs: Long,
         position: Vec2Fixed = Vec2Fixed(0, 0),
     ) {
-        val seq = sequencer.next(sceneRef)
         val ref = SceneRef.parse(sceneRef) ?: return
+        val seq = sequencer.next(sceneRef)
         val payload = SceneFlatCodec.encodePublicBatch(
             sceneRef = ref,
             events = listOf(

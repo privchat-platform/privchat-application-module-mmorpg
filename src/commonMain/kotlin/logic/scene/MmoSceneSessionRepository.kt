@@ -1,6 +1,7 @@
 package logic.scene
 
 import model.MmoSceneSession
+import neton.database.dbContext
 import neton.database.dsl.*
 import neton.logging.Logger
 import table.MmoSceneSessionTable
@@ -72,32 +73,64 @@ open class MmoSceneSessionRepository(
         return created
     }
 
-    /** 关闭会话。返回被关闭的那一行；原本就不在场时返回 null。 */
+    // 下面四个写操作都只改**自己那几列**(评审 2026-09-18):心跳、移动、状态迁移会在
+    // 同一 RTT 里并发到达同一行,整行 `update(entity)` 会把别人刚写的路径/状态用旧快照
+    // 冲掉——玩家被拉回原地、旧序号又能被受理、战斗中还能走路,都是这一个原因。
+
+    /** 关闭会话。返回被关闭的那一行;原本就不在场时返回 null。 */
     open suspend fun close(session: MmoSceneSession, nowMs: Long): MmoSceneSession? {
         if (session.status != 1) return null
-        val closed = session.copy(status = 0, lastSeenAt = nowMs)
-        MmoSceneSessionTable.update(closed)
+        val affected = dbContext().execute(
+            "UPDATE mmo_scene_session SET status = 0, last_seen_at = :now, updated_at = :now WHERE id = :id AND status = 1",
+            mapOf("now" to nowMs, "id" to session.id),
+        )
+        if (affected == 0L) return null
         log.info(
             "mmo.scene.session.closed session_id=${session.id} role_id=${session.roleId} " +
                 "scene_ref=${session.sceneRef}",
         )
-        return closed
+        return session.copy(status = 0, lastSeenAt = nowMs)
     }
 
-    /** 写回一段新的权威移动（路径、序号、版本）。 */
-    open suspend fun updateMovement(session: MmoSceneSession) {
-        MmoSceneSessionTable.update(session)
+    /**
+     * 写回一段新的权威移动(路径、序号、版本)。只在行上的 `movement_seq` 仍小于新序号
+     * 时生效——两条移动并发通过了服务层的序号比较时,数据库裁决谁赢,输家拿到 false
+     * 并按 21605 处理,而不是用旧的起点覆盖新的路径。
+     */
+    open suspend fun updateMovement(session: MmoSceneSession): Boolean {
+        val affected = dbContext().execute(
+            """
+            UPDATE mmo_scene_session SET
+                movement_seq = :seq, entity_version = :version, path_id = :pathId,
+                start_x = :sx, start_y = :sy, target_x = :tx, target_y = :ty,
+                path_points = :points, path_start_ms = :startMs, speed = :speed,
+                last_seen_at = :seen, updated_at = :seen
+            WHERE id = :id AND status = 1 AND movement_seq < :seq
+            """.trimIndent(),
+            mapOf(
+                "seq" to session.movementSeq, "version" to session.entityVersion, "pathId" to session.pathId,
+                "sx" to session.startX, "sy" to session.startY, "tx" to session.targetX, "ty" to session.targetY,
+                "points" to session.pathPoints, "startMs" to session.pathStartMs, "speed" to session.speed,
+                "seen" to session.lastSeenAt, "id" to session.id,
+            ),
+        )
+        return affected == 1L
     }
 
-    /** 场景 ↔ 战斗切换的状态迁移（§15.2）。返回写回后的行。 */
+    /** 场景 ↔ 战斗切换的状态迁移(§15.2)。只改 `state`,返回写回后的行。 */
     open suspend fun updateState(session: MmoSceneSession, state: String): MmoSceneSession {
-        val updated = session.copy(state = state)
-        MmoSceneSessionTable.update(updated)
-        return updated
+        dbContext().execute(
+            "UPDATE mmo_scene_session SET state = :state, updated_at = :now WHERE id = :id",
+            mapOf("state" to state, "now" to kotlin.time.Clock.System.now().toEpochMilliseconds(), "id" to session.id),
+        )
+        return session.copy(state = state)
     }
 
-    /** heartbeat 续期。只动 `last_seen_at`，不改状态。 */
+    /** heartbeat 续期。只动 `last_seen_at`。 */
     open suspend fun touch(session: MmoSceneSession, nowMs: Long) {
-        MmoSceneSessionTable.update(session.copy(lastSeenAt = nowMs))
+        dbContext().execute(
+            "UPDATE mmo_scene_session SET last_seen_at = :now, updated_at = :now WHERE id = :id",
+            mapOf("now" to nowMs, "id" to session.id),
+        )
     }
 }
