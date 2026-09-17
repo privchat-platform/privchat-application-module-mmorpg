@@ -1,0 +1,27 @@
+{
+  "protocol_version": 1,
+  "supported_protocol_versions": [
+    1
+  ],
+  "state_version": 3,
+  "public_event_seq": 2,
+  "battle_id": 7,
+  "round": 1,
+  "phase": "COMMAND",
+  "phase_version": 1,
+  "round_deadline_at_ms": 1,
+  "actors": [
+    {
+      "actor_id": 101,
+      "owner_role_id": 11,
+      "alive": true,
+      "position": 0,
+      "hp_percent": 101,
+      "mp_percent": 0
+    }
+  ],
+  "initiative_order": [
+    101
+  ],
+  "rng_algorithm_version": 1
+}

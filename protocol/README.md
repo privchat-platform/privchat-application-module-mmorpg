@@ -85,10 +85,22 @@ python3 scripts/validate.py event x.bin     # 校验单个样本
 `<规则编号>__<描述>.bin` 命名,校验器**必须**以对应规则拒绝它 ——
 放过任何一个即视为校验器失效。
 
-## 待补
+## 现状与待补
 
-- 战斗协议的 `.fbs`(`MMO_BATTLE_PROTOCOL_SPEC` §13 已有候选 IDL);
-- Kotlin / C++ 侧的 validator 实现(当前只有 Python 参考实现,
-  它是三端的对照基准,不是运行时校验);
-- 跨语言 round-trip(Kotlin 编码 → C++ 解码,反之亦然);
+已落地:
+
+- 战斗协议 `.fbs`(`battle_*.fbs`,6 个 root)与 `fixtures/battle/v1/**`
+  (7 个合法样本、12 个负向样本,`validate.py --fixtures` 一并跑);
+- Kotlin 运行时校验:`logic/codec/SceneFlatCodec` / `BattleFlatCodec` 在解码时
+  执行 V-H* / V-N* / V-BC2 / V-BQ1 / V-E8 / V-BE5 这些**不依赖服务端状态**的规则;
+  依赖状态的(序号、幂等、slot 归属)在 `SceneService` / `BattleService` 判定。
+  Python 参考实现仍是三端对照基准;
+- 跨语言 round-trip:Godot 反射 codec 编 `MMI1` → Kotlin 解 → 回 `MMA1` → Godot 解
+  (`privchat-godot-demo/scripts/auto_flatbuffers_check.gd` 步骤 5);
+  Godot 编出的 `godot_move_to.bin` 作为 golden fixture 进 Kotlin 测试。
+
+待补:
+
+- 高版本 `protocol_version` 携带**未知 union 成员**的 fixture:`flatc --binary` 无法按
+  当前 schema 编出未知成员,需要用未来 schema 单独生成后以字节固定下来;
 - CI 接入(当前 `generate.sh` 只能手工跑)。

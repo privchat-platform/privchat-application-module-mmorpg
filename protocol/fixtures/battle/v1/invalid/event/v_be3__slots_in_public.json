@@ -1,0 +1,41 @@
+{
+  "protocol_version": 1,
+  "battle_id": 7,
+  "round": 1,
+  "visibility": "PUBLIC",
+  "recipient_role_id": 0,
+  "batch_id": 1,
+  "chunk_index": 0,
+  "chunk_count": 1,
+  "first_stream_seq": 1,
+  "last_stream_seq": 1,
+  "events": [
+    {
+      "event_id": 1,
+      "stream_seq": 1,
+      "resulting_state_version": 1,
+      "critical": false,
+      "server_time_ms": 1,
+      "default_action_applied": false,
+      "auto_played": false,
+      "control_state": "MANUAL",
+      "payload_type": "SlotsOffered",
+      "payload": {
+        "slots": [
+          {
+            "command_slot_id": 5001,
+            "actor_id": 101,
+            "slot_kind": "PRIMARY",
+            "allowed_commands": [
+              "ATTACK",
+              "DEFEND"
+            ],
+            "required": true,
+            "deadline_at_ms": 1,
+            "accepted_action_seq": 0
+          }
+        ]
+      }
+    }
+  ]
+}

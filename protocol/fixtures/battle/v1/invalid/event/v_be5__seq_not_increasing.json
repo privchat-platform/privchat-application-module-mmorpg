@@ -1,0 +1,42 @@
+{
+  "protocol_version": 1,
+  "battle_id": 7,
+  "round": 1,
+  "visibility": "PUBLIC",
+  "recipient_role_id": 0,
+  "batch_id": 1,
+  "chunk_index": 0,
+  "chunk_count": 1,
+  "first_stream_seq": 2,
+  "last_stream_seq": 2,
+  "events": [
+    {
+      "event_id": 2,
+      "stream_seq": 2,
+      "resulting_state_version": 2,
+      "critical": false,
+      "server_time_ms": 1,
+      "default_action_applied": false,
+      "auto_played": false,
+      "control_state": "MANUAL",
+      "payload_type": "ActorDied",
+      "payload": {
+        "actor_id": 202
+      }
+    },
+    {
+      "event_id": 2,
+      "stream_seq": 2,
+      "resulting_state_version": 2,
+      "critical": false,
+      "server_time_ms": 1,
+      "default_action_applied": false,
+      "auto_played": false,
+      "control_state": "MANUAL",
+      "payload_type": "ActorDied",
+      "payload": {
+        "actor_id": 203
+      }
+    }
+  ]
+}

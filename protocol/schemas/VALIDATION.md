@@ -90,7 +90,20 @@ FlatBuffers 只保证**结构**合法,以下约束它一概不执行 —— unio
 # 战斗(MMO_BATTLE_PROTOCOL_SPEC)
 
 同上原则:FlatBuffers 不执行的约束在此列成可执行规则,编号 V-B*,每条由负向
-fixture 守护。JSON 过渡期(§15.4)同样适用——规则是语义的,不是编码的。
+fixture 守护。战斗 transfer 只有 FlatBuffers(ARCH §10.6),没有 JSON 形态。
+
+### 实现与覆盖现状(战斗)
+
+| 规则 | 负向 fixture | validate.py | Kotlin 运行时 | 说明 |
+|---|---|---|---|---|
+| V-BC1 V-BC2 V-BC3 | ✅ | ✅ | ✅ | — |
+| V-BC4 ~ V-BC8 | ❌ | ❌ | ✅ `BattleService.submit` | 需要服务端 slot / 版本 / 幂等状态 |
+| V-BE1 ~ V-BE6 | ✅ | ✅ | ⚠️ 编码侧由 `BattleFlatCodec.encodeEventBatch` 保证(≤128、分块) | V-BE2 的"等于当前接收者"需要接收方身份 |
+| V-BQ1 | ✅ | ✅ | ✅ | — |
+| V-BQ2 ~ V-BQ4 | ❌ | ❌ | ✅ `BattleService.instant` | 需要服务端状态 |
+| V-BS1 V-BS3 | ✅ | ✅ | ❌ | 客户端侧规则 |
+| V-BS2 | ❌ | ⚠️ 需传入端点 | ❌ | 需要知道调用的是哪个端点 |
+| V-BS4 | ❌ | ❌ | ❌ | 需要 HTTP 解压前后的上下文 |
 
 ## 上行:BattleCommandEnvelope(MBC1)
 

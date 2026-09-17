@@ -1,0 +1,16 @@
+{
+  "protocol_version": 1,
+  "request_id": "gd-1",
+  "battle_id": 7,
+  "role_id": 11,
+  "actor_id": 101,
+  "command_slot_id": 5001,
+  "round": 1,
+  "phase": "LOCKED",
+  "phase_version": 1,
+  "action_seq": 1,
+  "payload_type": "Attack",
+  "payload": {
+    "selected_target_id": 202
+  }
+}
