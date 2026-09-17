@@ -23,6 +23,12 @@ open class FakeBattleRepository : BattleRepository(NoopLogger) {
     val slots = mutableMapOf<Long, MmoBattleSlot>()
     val commands = mutableMapOf<Long, MmoBattleCommand>()
     val events = mutableMapOf<Long, MmoBattleEvent>()
+
+    override suspend fun deletePublishedBefore(olderThanMs: Long, limit: Int): Long {
+        val gone = events.values.filter { it.publishedAt > 0 && it.publishedAt < olderThanMs }.take(limit)
+        gone.forEach { events.remove(it.id) }
+        return gone.size.toLong()
+    }
     val leases = mutableMapOf<Long, MmoBattleLease>()
     val settlements = mutableMapOf<Long, MmoRewardSettlement>()
     private var next = 1L

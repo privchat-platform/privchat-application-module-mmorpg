@@ -151,7 +151,7 @@ class FakeRoomGateway(
     /** FlatBuffers 广播(正式格式)。 */
     val broadcastBytes = mutableListOf<Pair<Long, ByteArray>>()
 
-    override suspend fun broadcastBytes(channelId: Long, payload: ByteArray) {
+    override suspend fun broadcastBytes(channelId: Long, payload: ByteArray, topic: String?) {
         broadcastFailure?.let { throw it }
         broadcastBytes += channelId to payload
     }

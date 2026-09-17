@@ -242,16 +242,27 @@ class SceneServiceTest {
         ok(service.enter(1, alice.id, scene, "d1"))
         ok(service.enter(2, bob.id, scene, "d2"))
 
-        val snap = ok(service.publicSnapshot(scene))
+        val snap = ok(service.publicSnapshot(1, scene))
         assertEquals(listOf("Alice", "Bob"), snap.roles.map { it.roleName })
 
         ok(service.leave(1, alice.id, scene))
-        assertEquals(listOf("Bob"), ok(service.publicSnapshot(scene)).roles.map { it.roleName })
+        assertEquals(listOf("Bob"), ok(service.publicSnapshot(2, scene)).roles.map { it.roleName })
+        // 离场之后 Alice 就不再是"在场的人":名单对她关闭。
+        assertEquals(MmoErrorCodes.SCENE_SESSION_INVALID, fail(service.publicSnapshot(1, scene)).code)
+    }
+
+    @Test
+    fun publicSnapshotIsOnlyForUsersWithARolePresent() = runTest {
+        val alice = roles.seed(userId = 1, name = "Alice")
+        roles.seed(userId = 3, name = "Eve")
+        ok(service.enter(1, alice.id, scene, "d1"))
+        // Eve 有角色但没进这个场景:不能拉名单与坐标(AOI 之前唯一的视野边界)。
+        assertEquals(MmoErrorCodes.SCENE_SESSION_INVALID, fail(service.publicSnapshot(3, scene)).code)
     }
 
     @Test
     fun publicSnapshotOfAnUnopenedSceneIsNotFound() = runTest {
-        assertEquals(MmoErrorCodes.SCENE_NOT_FOUND, fail(service.publicSnapshot("l-999-1")).code)
+        assertEquals(MmoErrorCodes.SCENE_NOT_FOUND, fail(service.publicSnapshot(1, "l-999-1")).code)
     }
 
     @Test

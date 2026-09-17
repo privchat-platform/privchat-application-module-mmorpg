@@ -38,7 +38,12 @@ class SceneService(
     private val clock: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val idempotency: SceneMoveIdempotency = SceneMoveIdempotency(),
     private val tx: logic.battle.BattleTransactor = logic.battle.DirectBattleTransactor,
+    /** MoveTo 最小间隔;0 = 不限(测试用)。 */
+    private val moveMinIntervalMs: Long = DEFAULT_MOVE_MIN_INTERVAL_MS,
 ) {
+    /** 每个会话最近一次寻路的时刻(单实例内存;多实例时各自限各自的,足够)。 */
+    private val lastPathfindAt = HashMap<Long, Long>()
+
 
     // ---------------- 进入场景 ----------------
 
@@ -280,6 +285,18 @@ class SceneService(
         if (session.state != SceneSessionState.ACTIVE) {
             return SceneOutcome.Failure(MmoErrorCodes.SCENE_STATE_NOT_ALLOWED, "session ${session.id} is ${session.state}; movement is not allowed")
         }
+        // 寻路限频:在幂等命中之后(合法重试不该被限)、序号判定之前(被限的意图不占序号)。
+        if (intent.command is SceneMoveCodec.Command.MoveTo) {
+            val last = lastPathfindAt[session.id] ?: 0L
+            if (moveMinIntervalMs > 0 && now - last < moveMinIntervalMs) {
+                return SceneOutcome.Failure(
+                    MmoErrorCodes.SCENE_MOVE_RATE_LIMITED,
+                    "move_to for session ${session.id} arrived ${now - last}ms after the previous one; minimum is ${moveMinIntervalMs}ms",
+                )
+            }
+            lastPathfindAt[session.id] = now
+            if (lastPathfindAt.size > MAX_TRACKED_SESSIONS) lastPathfindAt.entries.removeAll { now - it.value > moveMinIntervalMs }
+        }
         if (intent.movementSeq <= session.movementSeq) {
             return SceneOutcome.Failure(
                 MmoErrorCodes.SCENE_MOVEMENT_SEQ_STALE, "movement_seq ${intent.movementSeq} is not above accepted ${session.movementSeq}",
@@ -339,7 +356,7 @@ class SceneService(
             ),
             serverTimeMs = now,
         )
-        runCatching { rooms.broadcastBytes(session.channelId, payload) }.onFailure {
+        runCatching { rooms.broadcastBytes(session.channelId, payload, SceneRoomGateway.TOPIC_SCENE_PUBLIC) }.onFailure {
             log.warn("mmo.scene.movement.broadcast_failed scene_ref=${session.sceneRef} role_id=${role.id} err=${it.message}")
         }
         return SceneOutcome.Success(ack)
@@ -399,7 +416,12 @@ class SceneService(
     // ---------------- 快照 ----------------
 
     /** 场景内的在场名单。任何能看到该场景的人都可以读。 */
-    suspend fun publicSnapshot(rawSceneRef: String): SceneOutcome<PublicSnapshot> {
+    /**
+     * 公开快照只给**在场的人**:`userId` 名下至少一个角色在这个场景有活跃会话。
+     * 否则任何登录账号都能拉任意场景的完整名单与坐标——这是 AOI 之前唯一的视野边界。
+     * 没在场用 `21601`(与 private snapshot 同一语义:你在这里没有会话)。
+     */
+    suspend fun publicSnapshot(userId: Long, rawSceneRef: String): SceneOutcome<PublicSnapshot> {
         val sceneRef = SceneRef.parse(rawSceneRef)
             ?: return SceneOutcome.Failure(
                 MmoErrorCodes.SCENE_GENERATION_MISMATCH,
@@ -411,7 +433,10 @@ class SceneService(
         val now = nowMs()
         val present = sessions.listActiveByScene(encoded)
         val named = present.mapNotNull { s ->
-            roles.findById(s.roleId)?.let { PresentRole(it.id, it.name, entityStateOf(s, now)) }
+            roles.findById(s.roleId)?.let { PresentRole(it.id, it.name, entityStateOf(s, now), it.userId) }
+        }
+        if (named.none { it.ownerUserId == userId }) {
+            return SceneOutcome.Failure(MmoErrorCodes.SCENE_SESSION_INVALID, "user $userId has no role present in $encoded")
         }
         return SceneOutcome.Success(
             PublicSnapshot(sceneRef, sequencer.current(encoded), named, now, map.id, map.npcs.map { NpcView(it.id, it.name, it.kind, Vec2Fixed(it.x, it.y), it.interactRange) }),
@@ -510,7 +535,7 @@ class SceneService(
             ),
             serverTimeMs = nowMs,
         )
-        runCatching { rooms.broadcastBytes(channelId, payload) }
+        runCatching { rooms.broadcastBytes(channelId, payload, SceneRoomGateway.TOPIC_SCENE_PUBLIC) }
             .onFailure {
                 log.warn(
                     "mmo.scene.presence.broadcast_failed event=$event scene_ref=$sceneRef " +
@@ -523,6 +548,8 @@ class SceneService(
     private fun nowMs(): Long = clock()
 
     companion object {
+        const val DEFAULT_MOVE_MIN_INTERVAL_MS: Long = 100
+        private const val MAX_TRACKED_SESSIONS: Int = 10_000
         /**
          * Room ticket 的 scope。server 端只接受 `"subscribe"`，其它值一律 400
          * ——这是个封闭枚举，不是给业务侧打标记用的自由字段。
@@ -572,7 +599,7 @@ data class MovementInProgress(
     val speed: Int,
 )
 
-data class PresentRole(val roleId: Long, val roleName: String, val state: EntityState)
+data class PresentRole(val roleId: Long, val roleName: String, val state: EntityState, val ownerUserId: Long = 0)
 
 data class NpcView(val npcId: Long, val name: String, val kind: String, val position: Vec2Fixed, val interactRange: Int)
 

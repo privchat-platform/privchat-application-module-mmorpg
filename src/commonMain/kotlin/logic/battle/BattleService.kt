@@ -55,6 +55,7 @@ class BattleService(
     private val clock: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val seeds: () -> Long = { Clock.System.now().toEpochMilliseconds() xor 0x5DEECE66DL },
 ) {
+    private var lastPruneAt: Long = 0
 
     // ---------------- 发起（§15.2 saga）----------------
 
@@ -342,6 +343,13 @@ class BattleService(
         }
         // 上次投递失败的事件在这里补投——只看真有待投递事件的战斗。
         for (battleId in repo.listBattleIdsWithPending()) runCatching { flush(battleId) }
+        // outbox 只是投递缓冲:已投递的行按保留期分批清掉,否则表与 pending 索引无界增长。
+        if (now - lastPruneAt >= PRUNE_INTERVAL_MS) {
+            lastPruneAt = now
+            runCatching { repo.deletePublishedBefore(now - EVENT_RETENTION_MS) }
+                .onSuccess { if (it > 0) log.info("mmo.battle.outbox.pruned rows=$it") }
+                .onFailure { log.warn("mmo.battle.outbox.prune_failed err=${it.message}") }
+        }
         // 卡在 CREATED 的僵尸(第二段事务失败且补偿也没跑成):关掉并把会话放回 ACTIVE,
         // 否则它既不会到期也不会关闭。
         for (zombie in repo.listStaleCreated(olderThanMs = now - CREATED_GRACE_MS)) {
@@ -526,7 +534,7 @@ class BattleService(
                 }
                 val sent = runCatching {
                     if (visibility == BattleCodec.VISIBILITY_PUBLIC) {
-                        rooms.broadcastBytes(battle.channelId, payload)
+                        rooms.broadcastBytes(battle.channelId, payload, logic.scene.SceneRoomGateway.TOPIC_BATTLE_PUBLIC)
                     } else {
                         val userId = roles.findById(recipient)?.userId ?: error("recipient role $recipient is gone")
                         rooms.sendTransferBytes(battle.channelId, userId, ROUTE_BATTLE_EVENT, uuidV4(), payload)
@@ -579,6 +587,9 @@ class BattleService(
 
         /** CREATED 超过这么久还没进 COMMAND 的战斗视为僵尸。 */
         const val CREATED_GRACE_MS: Long = 60_000
+        /** 已投递 outbox 行的保留期;客户端漏了就拉 snapshot,不靠这张表回放。 */
+        const val EVENT_RETENTION_MS: Long = 6 * 60 * 60 * 1000L
+        const val PRUNE_INTERVAL_MS: Long = 60_000
 
         val CRITICAL_PAYLOADS: Set<String> = setOf("phase_changed", "battle_settled", "slots_offered", "command_accepted")
     }

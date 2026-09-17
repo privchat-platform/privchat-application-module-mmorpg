@@ -133,7 +133,7 @@ domain = "mmo-scene"
 
 [[code]]
 code = 21604
-name = "SceneMoveNotAllowed"
+name = "SceneMoveRateLimited"
 domain = "mmo-scene"
 
 [[code]]

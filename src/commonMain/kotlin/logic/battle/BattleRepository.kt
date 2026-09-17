@@ -131,6 +131,18 @@ open class BattleRepository(
         }.list()
     open suspend fun markPublished(event: MmoBattleEvent, nowMs: Long) { MmoBattleEventTable.update(event.copy(publishedAt = nowMs)) }
 
+    /**
+     * 已投递且早于 [olderThanMs] 的 outbox 行。表只是投递缓冲,不是战斗日志
+     * (日志在 `mmo_battle_transition` / 结算),留着只会让 `idx_mmo_battle_event_pending`
+     * 越扫越慢。分批删,避免一条大 DELETE 长时间持锁。
+     */
+    open suspend fun deletePublishedBefore(olderThanMs: Long, limit: Int = 1_000): Long =
+        dbContext().execute(
+            """DELETE FROM mmo_battle_event WHERE id IN (
+                 SELECT id FROM mmo_battle_event WHERE published_at > 0 AND published_at < :before LIMIT :limit)""",
+            mapOf("before" to olderThanMs, "limit" to limit),
+        )
+
     // ---- lease ----
     open suspend fun findLease(battleId: Long): MmoBattleLease? =
         MmoBattleLeaseTable.oneWhere { MmoBattleLease::battleId eq battleId }

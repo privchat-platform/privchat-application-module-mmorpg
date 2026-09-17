@@ -19,9 +19,11 @@ class SceneMoveTest {
     private val rooms = FakeRoomGateway()
     private var now = 10_000L
     private val channels = FakeChannelService(rooms)
+    // 这些用例在同一毫秒里连发 MoveTo 验证序号/幂等,限频关掉;限频单独测。
     private val service = SceneService(
         log = NoopLogger, roles = roles, sessions = sessions, channels = channels,
         sequencer = SceneSequencer(), rooms = rooms, maps = FakeMapRepository(), clock = { now },
+        moveMinIntervalMs = 0,
     )
     private val scene = "l-10023-7"
 
@@ -123,17 +125,39 @@ class SceneMoveTest {
     }
 
     @Test
+    fun moveToIsRateLimitedPerSessionButRetriesAndStopAreNot() = runTest {
+        val limited = SceneService(
+            log = NoopLogger, roles = roles, sessions = sessions, channels = channels,
+            sequencer = SceneSequencer(), rooms = rooms, maps = FakeMapRepository(), clock = { now },
+            moveMinIntervalMs = 100,
+        )
+        val e = enterAlice()
+        val first = intent(e.sceneSessionId, 1, moveTo(TestMap.SPAWN.x - 30_000, TestMap.SPAWN.y))
+        ok(limited.move(1, e.channelId, first))
+        now += 20
+        // 20 ms 后的第二个目标:被限,且不占序号(下一次 seq=2 仍然合法)。
+        val r = limited.move(1, e.channelId, intent(e.sceneSessionId, 2, moveTo(TestMap.SPAWN.x - 20_000, TestMap.SPAWN.y)))
+        assertEquals(MmoErrorCodes.SCENE_MOVE_RATE_LIMITED, assertIs<SceneOutcome.Failure>(r).code)
+        // 同 request_id 的重试是幂等回放,不受限频影响。
+        ok(limited.move(1, e.channelId, first))
+        // Stop 不寻路,不限。
+        ok(limited.move(1, e.channelId, intent(e.sceneSessionId, 2, SceneMoveCodec.Command.Stop)))
+        now += 100
+        ok(limited.move(1, e.channelId, intent(e.sceneSessionId, 3, moveTo(TestMap.SPAWN.x - 20_000, TestMap.SPAWN.y))))
+    }
+
+    @Test
     fun snapshotsCarryPositionsAndTheInFlightPath() = runTest {
         val e = enterAlice()
         ok(service.move(1, e.channelId, intent(e.sceneSessionId, 1, moveTo(TestMap.SPAWN.x - 30_000, TestMap.SPAWN.y))))
         now += 3_000
-        val snap = ok(service.publicSnapshot(scene))
+        val snap = ok(service.publicSnapshot(1, scene))
         val state = snap.roles.single().state
         assertEquals(Vec2Fixed(TestMap.SPAWN.x - 15_000, TestMap.SPAWN.y), state.position)
         assertEquals(1L, state.movementSeq)
         assertEquals(listOf(Vec2Fixed(TestMap.SPAWN.x - 30_000, TestMap.SPAWN.y)), state.movement?.pathPoints)
         now += 10_000
-        assertNull(ok(service.publicSnapshot(scene)).roles.single().state.movement, "an arrived path is not in flight")
+        assertNull(ok(service.publicSnapshot(1, scene)).roles.single().state.movement, "an arrived path is not in flight")
     }
 
     @Test

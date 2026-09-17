@@ -13,6 +13,12 @@ import com.netonstream.privchat.application.module.privchat.client.dto.TransferS
  * 什么（建房、发票、广播），而且测试不必去实现那近百个方法。
  */
 interface SceneRoomGateway {
+    companion object {
+        /** Room `topic` 标注(SCENE §9 / BATTLE §9):订阅端据此分流,不是 transfer route。 */
+        const val TOPIC_SCENE_PUBLIC: String = "mmorpg.scene.public"
+        const val TOPIC_BATTLE_PUBLIC: String = "mmorpg.battle.public"
+    }
+
 
     /** 为场景申请一个 Room channel，返回 `channel_id`。 */
     suspend fun createRoom(name: String): Long
@@ -29,7 +35,7 @@ interface SceneRoomGateway {
     suspend fun broadcast(channelId: Long, payload: String)
 
     /** 向 Room 广播一条公共事件(FlatBuffers 字节;正式格式,ARCH §10.6)。 */
-    suspend fun broadcastBytes(channelId: Long, payload: ByteArray)
+    suspend fun broadcastBytes(channelId: Long, payload: ByteArray, topic: String? = null)
 
     /**
      * 向 channel 上的一个用户定向投递（PRIVATE 事件）。`payload` 是 UTF-8 文本；
@@ -72,8 +78,8 @@ class PrivchatSceneRoomGateway(
         client.broadcastRoom(channelId, payload)
     }
 
-    override suspend fun broadcastBytes(channelId: Long, payload: ByteArray) {
-        client.broadcastRoomBytes(channelId, payload)
+    override suspend fun broadcastBytes(channelId: Long, payload: ByteArray, topic: String?) {
+        client.broadcastRoomBytes(channelId, payload, topic = topic)
     }
 
     @OptIn(kotlin.io.encoding.ExperimentalEncodingApi::class)

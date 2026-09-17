@@ -99,8 +99,8 @@ class MmoSceneController(
     }
 
     @Get("/{sceneRef}/snapshot")
-    suspend fun publicSnapshot(@PathVariable sceneRef: String): ScenePublicSnapshotResponse {
-        val snapshot = scenes.publicSnapshot(sceneRef).orThrow()
+    suspend fun publicSnapshot(identity: Identity, @PathVariable sceneRef: String): ScenePublicSnapshotResponse {
+        val snapshot = scenes.publicSnapshot(userId = identity.id.toLong(), rawSceneRef = sceneRef).orThrow()
         return ScenePublicSnapshotResponse(
             sceneRef = snapshot.sceneRef.encode(),
             publicSceneSeq = snapshot.publicSceneSeq,

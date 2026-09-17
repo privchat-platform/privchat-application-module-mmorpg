@@ -20,6 +20,12 @@ object MmoErrorCodes {
     /** 目标点越界 / 不在可行走区。 */
     const val SCENE_MOVE_TARGET_UNREACHABLE: Int = 21603
 
+    /**
+     * 同一会话的 MoveTo 来得太密。寻路是服务端最贵的一步(A* 上限 2 万次扩展),
+     * 一个疯狂点地图的客户端能把一个核心占满;被拒的意图**不占用序号**,客户端稍后重发即可。
+     */
+    const val SCENE_MOVE_RATE_LIMITED: Int = 21604
+
     /** `movement_seq` 不大于该 session 已受理的最大值（乱序迟到）。 */
     const val SCENE_MOVEMENT_SEQ_STALE: Int = 21605
 
