@@ -10,7 +10,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * 战斗 golden fixtures(protocol/fixtures/battle/v1/**)在 Kotlin 侧的解码结果必须与
+ * 战斗 golden fixtures(protocol/fixtures/battle/v1/)在 Kotlin 侧的解码结果必须与
  * validate.py 的判定一致:合法样本解出来的字段等于 JSON 源;负向样本要么被 codec 拒,
  * 要么解成 service 会拒的形态(V-BC1 的 payload=null 由 service 判 21407)。
  */
