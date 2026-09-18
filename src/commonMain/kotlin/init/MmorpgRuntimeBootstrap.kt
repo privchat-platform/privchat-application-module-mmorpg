@@ -59,7 +59,7 @@ object MmorpgRuntimeBootstrap {
         )
         ctx.bind(SceneChannelService::class, channels)
 
-        val sequencer = SceneSequencer()
+        val sequencer = SceneSequencer(SceneSequencer.Store.Database())
         ctx.bind(SceneSequencer::class, sequencer)
 
         val maps = MapRepository(loggers.get("mmorpg.map"))
