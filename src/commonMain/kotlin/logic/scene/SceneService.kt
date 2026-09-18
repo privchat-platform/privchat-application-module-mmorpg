@@ -286,7 +286,14 @@ class SceneService(
             return SceneOutcome.Failure(MmoErrorCodes.SCENE_STATE_NOT_ALLOWED, "session ${session.id} is ${session.state}; movement is not allowed")
         }
         // 寻路限频:在幂等命中之后(合法重试不该被限)、序号判定之前(被限的意图不占序号)。
+        // 限的是 A*,不是"发意图":目标越界/在阻挡格这种 O(1) 就能拒的先拒(21603),
+        // 不占限频窗口——否则一次误点之后 100 ms 内的纠正也会被拒。
         if (intent.command is SceneMoveCodec.Command.MoveTo) {
+            val target = (intent.command as SceneMoveCodec.Command.MoveTo).target
+            val cheapMap = mapOf(session)
+            if (cheapMap != null && !cheapMap.isWalkable(target)) {
+                return SceneOutcome.Failure(MmoErrorCodes.SCENE_MOVE_TARGET_UNREACHABLE, "target $target is outside the map or blocked")
+            }
             val last = lastPathfindAt[session.id] ?: 0L
             if (moveMinIntervalMs > 0 && now - last < moveMinIntervalMs) {
                 return SceneOutcome.Failure(
