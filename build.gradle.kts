@@ -125,10 +125,8 @@ val generateFixtureKotlin by tasks.registering {
         )
     }
 }
-afterEvaluate {
-    kotlin.sourceSets.named("commonTest") { kotlin.srcDir(layout.buildDirectory.dir("generated/fixtures/kotlin")) }
-}
-tasks.matching { it.name.startsWith("compileTestKotlin") }.configureEach { dependsOn(generateFixtureKotlin) }
+// The task provider as source dir carries the dependency to every consumer (compile and KSP).
+kotlin.sourceSets.named("commonTest") { kotlin.srcDir(generateFixtureKotlin) }
 
 tasks.matching { it.name == "compileCommonMainKotlinMetadata" }.configureEach {
     dependsOn("kspKotlinMacosArm64")
