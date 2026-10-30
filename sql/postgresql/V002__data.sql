@@ -1,0 +1,20 @@
+-- mmorpg: 1.0.0-beta initial data, for an empty baseline database only.
+SET search_path = public;
+SET standard_conforming_strings = on;
+INSERT INTO public."mmo_map" ("id", "name", "width_cells", "height_cells", "cell_size", "grid", "spawn_x", "spawn_y", "status", "created_at", "updated_at") OVERRIDING SYSTEM VALUE VALUES ('1', '长安城郊', '40', '40', '2500', '..................................................................................................................................................................................................................########................................########................................########................................########........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................##############..........................##############..........................##############..............................................................................................................................................................................................................####....................................####....................................####....................................####..............................................................................................................................................................................................................................................................................', '50000', '50000', '1', '0', '0');
+INSERT INTO public."mmo_npc" ("id", "map_id", "name", "kind", "x", "y", "interact_range", "dialog", "status", "created_at", "updated_at", "encounter") OVERRIDING SYSTEM VALUE VALUES ('1', '1', '驿站老板', 'dialog', '20000', '12000', '3000', '客官打尖还是住店？', '1', '0', '0', '');
+INSERT INTO public."mmo_npc" ("id", "map_id", "name", "kind", "x", "y", "interact_range", "dialog", "status", "created_at", "updated_at", "encounter") OVERRIDING SYSTEM VALUE VALUES ('2', '1', '巡城捕快', 'dialog', '72000', '60000', '3000', '城外最近不太平，夜里莫要独行。', '1', '0', '0', '');
+INSERT INTO public."mmo_npc" ("id", "map_id", "name", "kind", "x", "y", "interact_range", "dialog", "status", "created_at", "updated_at", "encounter") OVERRIDING SYSTEM VALUE VALUES ('3', '1', '山贼', 'monster', '60000', '30000', '3000', '此山是我开！留下买路财！', '1', '0', '0', '[{"name":"山贼","hp":40,"mp":0,"atk":10,"def":2,"speed":6},{"name":"山贼头目","hp":50,"mp":10,"atk":12,"def":4,"speed":9}]');
+SELECT pg_catalog.setval('public.mmo_role_id_seq', 1, false);
+SELECT pg_catalog.setval('public.mmo_scene_channel_id_seq', 1, false);
+SELECT pg_catalog.setval('public.mmo_scene_session_id_seq', 1, false);
+SELECT pg_catalog.setval('public.mmo_map_id_seq', 1, false);
+SELECT pg_catalog.setval('public.mmo_npc_id_seq', 1, false);
+SELECT pg_catalog.setval('public.mmo_battle_id_seq', 1, false);
+SELECT pg_catalog.setval('public.mmo_battle_transition_id_seq', 1, false);
+SELECT pg_catalog.setval('public.mmo_battle_actor_id_seq', 1, false);
+SELECT pg_catalog.setval('public.mmo_battle_slot_id_seq', 1, false);
+SELECT pg_catalog.setval('public.mmo_battle_command_id_seq', 1, false);
+SELECT pg_catalog.setval('public.mmo_battle_event_id_seq', 1, false);
+SELECT pg_catalog.setval('public.mmo_battle_lease_id_seq', 1, false);
+SELECT pg_catalog.setval('public.mmo_reward_settlement_id_seq', 1, false);

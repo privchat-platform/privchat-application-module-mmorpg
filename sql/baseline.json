@@ -1,0 +1,32 @@
+{
+  "release": "1.0.0-beta",
+  "module": "mmorpg",
+  "fresh_install_only": true,
+  "dependencies": [
+    "privchat"
+  ],
+  "baseline": [
+    {
+      "file": "V001__schema.sql",
+      "sha256": "0397b2c9c3ff479f7446396f253b87edfc8c3065ddb847d7486d024deb6ba3e8"
+    },
+    {
+      "file": "V002__data.sql",
+      "sha256": "48fe4171ee3ddb7e80c507c067f24b801a54637b7317ae8b1e0bcb8938fcc72a"
+    }
+  ],
+  "superseded": [
+    {
+      "name": "V001__baseline.sql",
+      "sha256": "56900b2ad2ecaa127a6ff69d4e228dc83015c955e7b9c88818b7cefe5942c90c"
+    },
+    {
+      "name": "V002__concurrency_guards.sql",
+      "sha256": "4c88604feee22690753f1a45b53630602c67bbd5cc7873f1d5f888613aa37c8e"
+    },
+    {
+      "name": "V003__scene_public_seq.sql",
+      "sha256": "b264490082fbd6aabaeee1f90512c7b21cc9673beea88b29ebdb06c743c1acd0"
+    }
+  ]
+}
